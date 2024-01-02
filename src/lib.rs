@@ -20,10 +20,12 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     window: Window,
 
     camera: Camera,
+    controller: Controller,
 }
 
 struct Camera {
@@ -35,6 +37,14 @@ struct Camera {
     orientation: glm::Quat,
     view_mat: glm::Mat4,
     proj_mat: glm::Mat4,
+}
+
+struct Controller {
+    speed: f32,
+    is_forward: bool,
+    is_back: bool,
+    is_left: bool,
+    is_right: bool,
 }
 
 impl Camera {
@@ -50,8 +60,8 @@ impl Camera {
             proj_mat: glm::Mat4::default(),
         };
 
-        cam.view_mat = cam.update_view_mat();
-        cam.proj_mat = cam.update_proj_mat();
+        cam.view_mat = cam.view_mat();
+        cam.proj_mat = cam.proj_mat();
         cam
     }
 
@@ -59,11 +69,9 @@ impl Camera {
         let to_ndc: glm::Mat4 = glm::translation(&glm::Vec3::new(0.0, 0.0, 0.5))
             * glm::scaling(&glm::Vec3::new(1.0, 1.0, 0.5));
         to_ndc * self.proj_mat * self.view_mat
-        // glm::Mat4::identity()
-        // to_ndc
     }
 
-    fn update_view_mat(&self) -> glm::Mat4 {
+    fn view_mat(&self) -> glm::Mat4 {
         glm::look_at(
             &self.position,
             &glm::Vec3::new(0.0, 0.0, 0.0),
@@ -71,8 +79,68 @@ impl Camera {
         )
     }
 
-    fn update_proj_mat(&self) -> glm::Mat4 {
+    fn proj_mat(&self) -> glm::Mat4 {
         glm::perspective(self.aspect, self.fov_y, self.near, self.far)
+    }
+}
+
+impl Controller {
+    pub fn new() -> Self {
+        Self {
+            speed: 0.001,
+            is_forward: false,
+            is_back: false,
+            is_left: false,
+            is_right: false,
+        }
+    }
+
+    fn process_event(&mut self, evt: &WindowEvent) {
+        if let WindowEvent::KeyboardInput {
+            input:
+                KeyboardInput {
+                    state,
+                    virtual_keycode: Some(keycode),
+                    ..
+                },
+            ..
+        } = evt
+        {
+            let pressed = *state == ElementState::Pressed;
+
+            match keycode {
+                VirtualKeyCode::W => {
+                    self.is_forward = pressed;
+                }
+                VirtualKeyCode::A => {
+                    self.is_left = pressed;
+                }
+                VirtualKeyCode::S => {
+                    self.is_back = pressed;
+                }
+                VirtualKeyCode::D => {
+                    self.is_right = pressed;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn update_camera(&self, cam: &mut Camera) {
+        if self.is_forward {
+            cam.position.z -= self.speed;
+        }
+        if self.is_back {
+            cam.position.z += self.speed;
+        }
+        if self.is_left {
+            cam.position.x -= self.speed;
+        }
+        if self.is_right {
+            cam.position.x += self.speed;
+        }
+
+        cam.view_mat = cam.view_mat();
     }
 }
 
@@ -146,7 +214,7 @@ impl State {
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera buffer"),
             contents: bytemuck::cast_slice(camera.mat().as_slice()),
-            usage: wgpu::BufferUsages::UNIFORM,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let camera_bind_group_layout =
@@ -234,6 +302,8 @@ impl State {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
+        let controller = Controller::new();
+
         Self {
             surface,
             device,
@@ -242,9 +312,11 @@ impl State {
             config,
             render_pipeline,
             vertex_buffer,
+            camera_buffer,
             camera_bind_group,
             window,
             camera,
+            controller,
         }
     }
 
@@ -354,6 +426,8 @@ pub async fn run() {
                 ref event,
                 window_id,
             } if window_id == state.window().id() => {
+                state.controller.process_event(event);
+
                 if !state.input(event) {
                     match event {
                         WindowEvent::CloseRequested
@@ -394,5 +468,12 @@ pub async fn run() {
             }
             _ => {}
         }
+
+        state.controller.update_camera(&mut state.camera);
+        state.queue.write_buffer(
+            &state.camera_buffer,
+            0,
+            bytemuck::cast_slice(state.camera.mat().as_slice()),
+        );
     });
 }
