@@ -1,4 +1,13 @@
-// Vertex shader
+struct Camera {
+    mvp: mat4x4f,
+}
+
+@group(0) @binding(0)
+var<uniform> camera: Camera;
+
+struct VertexInput {
+    @location(0) position: vec2f,
+};
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4f,
@@ -7,7 +16,8 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(
-    @builtin(vertex_index) in_vertex_index: u32,
+    @builtin(vertex_index) index: u32,
+    vert: VertexInput,
 ) -> VertexOutput {
     var out: VertexOutput;
 
@@ -21,8 +31,9 @@ fn vs_main(
         vec2f(-1.0,  1.0) * vec2f(0.95),
     );
 
-    out.pos = verts[in_vertex_index];
-    out.clip_position = vec4<f32>(out.pos, 0.0, 1.0);
+    out.pos = verts[index];
+    out.pos = vert.position;
+    out.clip_position = camera.mvp * vec4f(out.pos, 0.0, 1.0);
     return out;
 }
 

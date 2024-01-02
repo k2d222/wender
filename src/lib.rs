@@ -1,10 +1,13 @@
 use std::iter;
 
+use wgpu::util::DeviceExt;
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
+
+use nalgebra_glm as glm;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -16,7 +19,61 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
     window: Window,
+
+    camera: Camera,
+}
+
+struct Camera {
+    position: glm::Vec3,
+    aspect: f32,
+    fov_y: f32,
+    near: f32,
+    far: f32,
+    orientation: glm::Quat,
+    view_mat: glm::Mat4,
+    proj_mat: glm::Mat4,
+}
+
+impl Camera {
+    pub fn new() -> Self {
+        let mut cam = Self {
+            position: glm::Vec3::new(5.0, 0.0, 5.0),
+            aspect: 1.0,
+            fov_y: 70.0,
+            near: 0.1,
+            far: 1000.0,
+            orientation: glm::Quat::default(),
+            view_mat: glm::Mat4::default(),
+            proj_mat: glm::Mat4::default(),
+        };
+
+        cam.view_mat = cam.update_view_mat();
+        cam.proj_mat = cam.update_proj_mat();
+        cam
+    }
+
+    pub fn mat(&self) -> glm::Mat4 {
+        let to_ndc: glm::Mat4 = glm::translation(&glm::Vec3::new(0.0, 0.0, 0.5))
+            * glm::scaling(&glm::Vec3::new(1.0, 1.0, 0.5));
+        to_ndc * self.proj_mat * self.view_mat
+        // glm::Mat4::identity()
+        // to_ndc
+    }
+
+    fn update_view_mat(&self) -> glm::Mat4 {
+        glm::look_at(
+            &self.position,
+            &glm::Vec3::new(0.0, 0.0, 0.0),
+            &glm::Vec3::new(0.0, 1.0, 0.0),
+        )
+    }
+
+    fn update_proj_mat(&self) -> glm::Mat4 {
+        glm::perspective(self.aspect, self.fov_y, self.near, self.far)
+    }
 }
 
 impl State {
@@ -84,10 +141,42 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
+        let camera = Camera::new();
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera buffer"),
+            contents: bytemuck::cast_slice(camera.mat().as_slice()),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Camera bind group"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        });
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&camera_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -97,7 +186,15 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<glm::Vec2>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x2,
+                    }],
+                }],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -122,6 +219,21 @@ impl State {
             multiview: None,
         });
 
+        const BUF_DATA: &[glm::Vec2] = &[
+            glm::Vec2::new(-1.0, -1.0),
+            glm::Vec2::new(1.0, -1.0),
+            glm::Vec2::new(1.0, 1.0),
+            glm::Vec2::new(-1.0, -1.0),
+            glm::Vec2::new(1.0, 1.0),
+            glm::Vec2::new(-1.0, 1.0),
+        ];
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(BUF_DATA),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
         Self {
             surface,
             device,
@@ -129,7 +241,10 @@ impl State {
             size,
             config,
             render_pipeline,
+            vertex_buffer,
+            camera_bind_group,
             window,
+            camera,
         }
     }
 
@@ -180,6 +295,8 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.draw(0..6, 0..1);
         }
 
