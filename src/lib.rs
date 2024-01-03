@@ -1,4 +1,4 @@
-use std::iter;
+use std::{iter, ops::Add};
 
 use wgpu::util::DeviceExt;
 use winit::{
@@ -28,15 +28,19 @@ struct State {
     controller: Controller,
 }
 
-struct Camera {
-    position: glm::Vec3,
-    aspect: f32,
+// !! careful with the alignments! add padding fields if necessary.
+// see https://www.w3.org/TR/WGSL/#alignment-and-size
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CameraUniform {
+    pos: glm::Vec3,
     fov_y: f32,
-    near: f32,
-    far: f32,
-    orientation: glm::Quat,
-    view_mat: glm::Mat4,
-    proj_mat: glm::Mat4,
+    view_mat_inv: glm::Mat4x4,
+}
+
+struct Camera {
+    uniform: CameraUniform,
+    quat: glm::Quat,
 }
 
 struct Controller {
@@ -49,38 +53,18 @@ struct Controller {
 
 impl Camera {
     pub fn new() -> Self {
-        let mut cam = Self {
-            position: glm::Vec3::new(5.0, 0.0, 5.0),
-            aspect: 1.0,
-            fov_y: 70.0,
-            near: 0.1,
-            far: 1000.0,
-            orientation: glm::Quat::default(),
-            view_mat: glm::Mat4::default(),
-            proj_mat: glm::Mat4::default(),
-        };
-
-        cam.view_mat = cam.view_mat();
-        cam.proj_mat = cam.proj_mat();
-        cam
+        Self {
+            uniform: CameraUniform {
+                pos: glm::Vec3::new(0.0, 0.0, 5.0),
+                fov_y: 70.0 / 180.0 * glm::pi::<f32>(),
+                view_mat_inv: Default::default(),
+            },
+            quat: glm::Quat::identity(),
+        }
     }
 
-    pub fn mat(&self) -> glm::Mat4 {
-        let to_ndc: glm::Mat4 = glm::translation(&glm::Vec3::new(0.0, 0.0, 0.5))
-            * glm::scaling(&glm::Vec3::new(1.0, 1.0, 0.5));
-        to_ndc * self.proj_mat * self.view_mat
-    }
-
-    fn view_mat(&self) -> glm::Mat4 {
-        glm::look_at(
-            &self.position,
-            &glm::Vec3::new(0.0, 0.0, 0.0),
-            &glm::Vec3::new(0.0, 1.0, 0.0),
-        )
-    }
-
-    fn proj_mat(&self) -> glm::Mat4 {
-        glm::perspective(self.aspect, self.fov_y, self.near, self.far)
+    pub fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(&self.uniform)
     }
 }
 
@@ -128,19 +112,23 @@ impl Controller {
 
     pub fn update_camera(&self, cam: &mut Camera) {
         if self.is_forward {
-            cam.position.z -= self.speed;
+            let dir = glm::quat_cast(&cam.quat) * glm::vec4(0.0, 0.0, -1.0, 0.0);
+            cam.uniform.pos += dir.xyz() * self.speed;
         }
         if self.is_back {
-            cam.position.z += self.speed;
+            let dir = glm::quat_cast(&cam.quat) * glm::vec4(0.0, 0.0, -1.0, 0.0);
+            cam.uniform.pos -= dir.xyz() * self.speed;
         }
         if self.is_left {
-            cam.position.x -= self.speed;
+            let half_angle = -self.speed.to_radians() * 10.0;
+            cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
         }
         if self.is_right {
-            cam.position.x += self.speed;
+            let half_angle = self.speed.to_radians() * 10.0;
+            cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
         }
 
-        cam.view_mat = cam.view_mat();
+        cam.uniform.view_mat_inv = glm::quat_cast(&cam.quat);
     }
 }
 
@@ -213,7 +201,7 @@ impl State {
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera buffer"),
-            contents: bytemuck::cast_slice(camera.mat().as_slice()),
+            contents: camera.as_bytes(),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -222,7 +210,7 @@ impl State {
                 label: Some("Bind group layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -470,10 +458,8 @@ pub async fn run() {
         }
 
         state.controller.update_camera(&mut state.camera);
-        state.queue.write_buffer(
-            &state.camera_buffer,
-            0,
-            bytemuck::cast_slice(state.camera.mat().as_slice()),
-        );
+        state
+            .queue
+            .write_buffer(&state.camera_buffer, 0, state.camera.as_bytes());
     });
 }

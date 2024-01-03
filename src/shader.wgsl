@@ -1,9 +1,11 @@
 struct Camera {
-    mvp: mat4x4f,
-}
+    pos: vec3f,
+    fov_y: f32,
+    view_mat_inv: mat4x4f,
+};
 
 @group(0) @binding(0)
-var<uniform> camera: Camera;
+var<uniform> cam: Camera;
 
 struct VertexInput {
     @location(0) position: vec2f,
@@ -21,26 +23,27 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    var verts = array(
-        vec2f(-1.0, -1.0) * vec2f(0.95),
-        vec2f( 1.0, -1.0) * vec2f(0.95),
-        vec2f( 1.0,  1.0) * vec2f(0.95),
-
-        vec2f(-1.0, -1.0) * vec2f(0.95),
-        vec2f( 1.0,  1.0) * vec2f(0.95),
-        vec2f(-1.0,  1.0) * vec2f(0.95),
-    );
-
-    out.pos = verts[index];
     out.pos = vert.position;
-    out.clip_position = camera.mvp * vec4f(out.pos, 0.0, 1.0);
+    out.clip_position = vec4f(out.pos, 0.0, 1.0);
+
     return out;
 }
 
-// Fragment shader
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    return vec4f(in.pos * 0.5 + 0.5, 0.0, 1.0);
-    // return vec4<f32>(0.3, 0.2, 0.1, 1.0);
+    let dir = cam.view_mat_inv * normalize(vec4f(
+        in.pos.xy * tan(cam.fov_y / 2.0),
+        1.0,
+        0.0,
+    ));
+
+    let t = -cam.pos.z / dir.z;
+
+    let hit = cam.pos.xy + t * dir.xy;
+
+    if all(-1.0 <= hit & hit <= 1.0) {
+        return vec4f(1.0);
+    } else {
+        return vec4f(0.0, 0.0, 0.0, 1.0);
+    }
 }
