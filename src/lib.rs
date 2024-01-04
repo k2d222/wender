@@ -2,6 +2,7 @@ use std::iter;
 
 use wgpu::util::DeviceExt;
 use winit::{
+    dpi::LogicalPosition,
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
@@ -46,17 +47,21 @@ struct Camera {
 
 struct Controller {
     speed: f32,
+    sensitivity: f64,
     is_forward: bool,
     is_back: bool,
     is_left: bool,
     is_right: bool,
+    is_up: bool,
+    is_down: bool,
+    mouse_pos: (f64, f64),
 }
 
 impl Camera {
     pub fn new() -> Self {
         Self {
             uniform: CameraUniform {
-                pos: glm::Vec3::new(0.0, 0.0, 5.0),
+                pos: glm::Vec3::new(0.0, 20.0, -20.0),
                 fov_y: 70.0 / 180.0 * glm::pi::<f32>(),
                 view_mat_inv: Default::default(),
             },
@@ -73,60 +78,79 @@ impl Controller {
     pub fn new() -> Self {
         Self {
             speed: 0.1,
+            sensitivity: 0.005,
             is_forward: false,
             is_back: false,
             is_left: false,
             is_right: false,
+            is_up: false,
+            is_down: false,
+            mouse_pos: (0.0, 0.0),
         }
     }
 
-    fn process_event(&mut self, evt: &WindowEvent) {
-        if let WindowEvent::KeyboardInput {
-            input:
-                KeyboardInput {
-                    state,
-                    virtual_keycode: Some(keycode),
-                    ..
-                },
-            ..
-        } = evt
-        {
-            let pressed = *state == ElementState::Pressed;
+    fn process_keyboard(&mut self, input: &KeyboardInput) {
+        let pressed = input.state == ElementState::Pressed;
 
-            match keycode {
-                VirtualKeyCode::W => {
-                    self.is_forward = pressed;
-                }
-                VirtualKeyCode::A => {
-                    self.is_left = pressed;
-                }
-                VirtualKeyCode::S => {
-                    self.is_back = pressed;
-                }
-                VirtualKeyCode::D => {
-                    self.is_right = pressed;
-                }
-                _ => {}
+        match input.virtual_keycode {
+            Some(VirtualKeyCode::W) => {
+                self.is_forward = pressed;
             }
+            Some(VirtualKeyCode::A) => {
+                self.is_left = pressed;
+            }
+            Some(VirtualKeyCode::S) => {
+                self.is_back = pressed;
+            }
+            Some(VirtualKeyCode::D) => {
+                self.is_right = pressed;
+            }
+            Some(VirtualKeyCode::Space) => {
+                self.is_up = pressed;
+            }
+            Some(VirtualKeyCode::LShift) => {
+                self.is_down = pressed;
+            }
+            _ => {}
         }
     }
 
-    pub fn update_camera(&self, cam: &mut Camera) {
+    fn process_mouse(&mut self, delta: (f64, f64)) {
+        self.mouse_pos.0 += delta.0;
+        self.mouse_pos.1 += delta.1;
+    }
+
+    pub fn update_camera(&mut self, cam: &mut Camera) {
+        let half_angle_x = (self.mouse_pos.1 * self.sensitivity * 0.5) as f32;
+        let half_angle_y = (self.mouse_pos.0 * self.sensitivity * 0.5) as f32;
+        cam.quat = glm::Quat::new(half_angle_y.cos(), 0.0, half_angle_y.sin(), 0.0)
+            * glm::Quat::new(half_angle_x.cos(), half_angle_x.sin(), 0.0, 0.0);
+
         if self.is_forward {
-            let dir = glm::quat_cast(&cam.quat) * glm::vec4(0.0, 0.0, -1.0, 0.0);
+            let dir = glm::quat_cast(&cam.quat) * glm::vec4(0.0, 0.0, 1.0, 0.0);
             cam.uniform.pos += dir.xyz() * self.speed;
         }
         if self.is_back {
-            let dir = glm::quat_cast(&cam.quat) * glm::vec4(0.0, 0.0, -1.0, 0.0);
+            let dir = glm::quat_cast(&cam.quat) * glm::vec4(0.0, 0.0, 1.0, 0.0);
             cam.uniform.pos -= dir.xyz() * self.speed;
         }
         if self.is_left {
-            let half_angle = -self.speed.to_radians() * 2.0;
-            cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
+            let dir = glm::quat_cast(&cam.quat) * glm::vec4(1.0, 0.0, 0.0, 0.0);
+            cam.uniform.pos -= dir.xyz() * self.speed;
+            // let half_angle = -self.speed.to_radians() * 2.0;
+            // cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
         }
         if self.is_right {
-            let half_angle = self.speed.to_radians() * 2.0;
-            cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
+            let dir = glm::quat_cast(&cam.quat) * glm::vec4(1.0, 0.0, 0.0, 0.0);
+            cam.uniform.pos += dir.xyz() * self.speed;
+            // let half_angle = self.speed.to_radians() * 2.0;
+            // cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
+        }
+        if self.is_up {
+            cam.uniform.pos.y += self.speed;
+        }
+        if self.is_down {
+            cam.uniform.pos.y -= self.speed;
         }
 
         cam.uniform.view_mat_inv = glm::quat_cast(&cam.quat);
@@ -396,7 +420,9 @@ impl State {
         false
     }
 
-    fn update(&mut self) {}
+    fn update(&mut self) {
+        self.controller.update_camera(&mut self.camera);
+    }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
@@ -481,13 +507,23 @@ pub async fn run() {
         control_flow.set_wait();
 
         match event {
+            Event::DeviceEvent { ref event, .. } => match event {
+                DeviceEvent::MouseMotion { delta } => {
+                    state.controller.process_mouse(*delta);
+                }
+                _ => {}
+            },
             Event::WindowEvent {
                 ref event,
                 window_id,
             } if window_id == state.window().id() => {
-                state.controller.process_event(event);
-
                 if !state.input(event) {
+                    match event {
+                        WindowEvent::KeyboardInput { input, .. } => {
+                            state.controller.process_keyboard(input);
+                        }
+                        _ => {}
+                    }
                     match event {
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
@@ -528,7 +564,6 @@ pub async fn run() {
             _ => {}
         }
 
-        state.controller.update_camera(&mut state.camera);
         state
             .queue
             .write_buffer(&state.camera_buffer, 0, state.camera.as_bytes());

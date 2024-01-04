@@ -37,7 +37,7 @@ fn vs_main(
 }
 
 fn shade(pos: vec3f, normal: vec3f) -> vec4f {
-    return vec4f(1.0);
+    return vec4f(pos / 16.0 * 0.9 + 0.1, 1.0);
 }
 
 struct CastResult {
