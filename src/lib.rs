@@ -1,4 +1,4 @@
-use std::{iter, ops::Add};
+use std::iter;
 
 use wgpu::util::DeviceExt;
 use winit::{
@@ -22,6 +22,7 @@ struct State {
     vertex_buffer: wgpu::Buffer,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    blocks_bind_group: wgpu::BindGroup,
     window: Window,
 
     camera: Camera,
@@ -71,7 +72,7 @@ impl Camera {
 impl Controller {
     pub fn new() -> Self {
         Self {
-            speed: 0.001,
+            speed: 0.1,
             is_forward: false,
             is_back: false,
             is_left: false,
@@ -120,15 +121,47 @@ impl Controller {
             cam.uniform.pos -= dir.xyz() * self.speed;
         }
         if self.is_left {
-            let half_angle = -self.speed.to_radians() * 10.0;
+            let half_angle = -self.speed.to_radians() * 2.0;
             cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
         }
         if self.is_right {
-            let half_angle = self.speed.to_radians() * 10.0;
+            let half_angle = self.speed.to_radians() * 2.0;
             cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
         }
 
         cam.uniform.view_mat_inv = glm::quat_cast(&cam.quat);
+    }
+}
+
+// !! careful with the alignments! add padding fields if necessary.
+// see https://www.w3.org/TR/WGSL/#alignment-and-size
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct BlocksUniform {
+    blocks: [[[u32; 16]; 16]; 16],
+}
+
+struct Blocks {
+    uniform: BlocksUniform,
+}
+
+impl Blocks {
+    pub fn new() -> Self {
+        let mut blocks = [[[1; 16]; 16]; 16];
+
+        for x in 0..16 {
+            for z in 0..16 {
+                blocks[x][0][z] = 1;
+            }
+        }
+
+        Self {
+            uniform: BlocksUniform { blocks },
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(&self.uniform)
     }
 }
 
@@ -186,7 +219,7 @@ impl State {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
@@ -196,6 +229,8 @@ impl State {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
+
+        // --- camera
 
         let camera = Camera::new();
 
@@ -229,10 +264,44 @@ impl State {
             }],
         });
 
+        // --- blocks
+
+        let blocks = Blocks::new();
+
+        let blocks_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Blocks buffer"),
+            contents: blocks.as_bytes(),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let blocks_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let blocks_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Blocks bind group"),
+            layout: &blocks_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: blocks_buffer.as_entire_binding(),
+            }],
+        });
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout],
+                bind_group_layouts: &[&camera_bind_group_layout, &blocks_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -302,6 +371,7 @@ impl State {
             vertex_buffer,
             camera_buffer,
             camera_bind_group,
+            blocks_bind_group,
             window,
             camera,
             controller,
@@ -356,6 +426,7 @@ impl State {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.blocks_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.draw(0..6, 0..1);
         }
