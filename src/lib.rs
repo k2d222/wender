@@ -25,6 +25,7 @@ struct State {
     camera_bind_group: wgpu::BindGroup,
     blocks_bind_group: wgpu::BindGroup,
     window: Window,
+    cursor_grabbed: bool,
 
     camera: Camera,
     controller: Controller,
@@ -397,13 +398,10 @@ impl State {
             camera_bind_group,
             blocks_bind_group,
             window,
+            cursor_grabbed: false,
             camera,
             controller,
         }
-    }
-
-    pub fn window(&self) -> &Window {
-        &self.window
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -509,43 +507,60 @@ pub async fn run() {
         match event {
             Event::DeviceEvent { ref event, .. } => match event {
                 DeviceEvent::MouseMotion { delta } => {
-                    state.controller.process_mouse(*delta);
+                    if state.cursor_grabbed {
+                        state.controller.process_mouse(*delta);
+                    }
                 }
                 _ => {}
             },
             Event::WindowEvent {
                 ref event,
                 window_id,
-            } if window_id == state.window().id() => {
+            } if window_id == state.window.id() => {
                 if !state.input(event) {
                     match event {
+                        WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                         WindowEvent::KeyboardInput { input, .. } => {
-                            state.controller.process_keyboard(input);
+                            if input.state == ElementState::Pressed
+                                && input.virtual_keycode == Some(VirtualKeyCode::Escape)
+                            {
+                                state
+                                    .window
+                                    .set_cursor_grab(winit::window::CursorGrabMode::None)
+                                    .ok();
+                                state.window.set_cursor_visible(true);
+                                state.cursor_grabbed = false;
+                            } else {
+                                state.controller.process_keyboard(input);
+                            }
                         }
-                        _ => {}
-                    }
-                    match event {
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            input:
-                                KeyboardInput {
-                                    state: ElementState::Pressed,
-                                    virtual_keycode: Some(VirtualKeyCode::Escape),
-                                    ..
-                                },
-                            ..
-                        } => *control_flow = ControlFlow::Exit,
                         WindowEvent::Resized(physical_size) => {
                             state.resize(*physical_size);
                         }
                         WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                             state.resize(**new_inner_size);
                         }
+                        WindowEvent::MouseInput {
+                            state: button_state,
+                            button,
+                            ..
+                        } => {
+                            if *button_state == ElementState::Pressed
+                                && *button == MouseButton::Left
+                            {
+                                state
+                                    .window
+                                    .set_cursor_grab(winit::window::CursorGrabMode::Locked)
+                                    .ok();
+                                state.window.set_cursor_visible(false);
+                                state.cursor_grabbed = true;
+                            }
+                        }
                         _ => {}
                     }
                 }
             }
-            Event::RedrawRequested(window_id) if window_id == state.window().id() => {
+            Event::RedrawRequested(window_id) if window_id == state.window.id() => {
                 state.update();
                 match state.render() {
                     Ok(_) => {}
@@ -559,7 +574,7 @@ pub async fn run() {
             Event::MainEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
-                state.window().request_redraw();
+                state.window.request_redraw();
             }
             _ => {}
         }
