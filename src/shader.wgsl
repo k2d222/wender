@@ -1,6 +1,7 @@
 struct Camera {
     pos: vec3f,
     fov_y: f32,
+    aspect: f32,
     view_mat_inv: mat4x4f,
 }
 
@@ -36,14 +37,32 @@ fn vs_main(
     return out;
 }
 
-fn shade(pos: vec3f, normal: vec3f) -> vec4f {
-    return vec4f(pos / 16.0 * 0.9 + 0.1, 1.0);
+fn shade(view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> vec4f {
+    // return vec4f(pos / 16.0 * 0.9 + 0.1, 1.0);
+
+    let ambient_color = vec3f(1.0, 1.0, 1.0) * 0.0;
+    let diffuse_color = vec3f(0.0, 0.0, 1.0) * 5.0;
+    let specular_color = vec3f(1.0, 1.0, 1.0) * 0.1;
+    let shininess = 16.0;
+
+    let view_dir = normalize(view_pos - hit_pos);
+    let light_dir = view_dir;
+    let light_dist = length(view_pos - hit_pos);
+    let half_vector = normalize(light_dir + view_dir);
+    // var sun_light_dir = normalize(vec3f(1.0, -1.0, 1.0));
+
+    let ambient_term = ambient_color;
+    let diffuse_term = max(dot(hit_normal, light_dir), 0.0) * diffuse_color / light_dist;
+    let specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color / light_dist;
+
+    let shading_color = ambient_term + diffuse_term + specular_term;
+    return vec4f(shading_color, 1.0);
 }
 
 struct CastResult {
     hit: bool,
     hit_voxel: vec3i,
-    hit_face: vec3f,
+    hit_pos: vec3f,
 }
 
 fn out_of_bounds_i(pos: vec3i) -> bool {
@@ -63,59 +82,52 @@ fn sample_block(ipos: vec3i) -> u32 {
 // copyright user "fb39ca4" on shadertoy (https://www.shadertoy.com/view/4dX3zl)
 // licensed under cc-by-nc-sa
 fn raycast_voxels(ray_pos: vec3f, ray_dir: vec3f, steps: i32) -> CastResult {
-    var ipos = vec3i(ray_pos); // which voxel we're in
-    let delta_dist = abs(1.0 / ray_dir);
-    let ray_step = vec3i(sign(ray_dir));
-    var side_dist = (sign(ray_dir) * (vec3f(ipos) - ray_pos) + (sign(ray_dir) * 0.5) + 0.5) * delta_dist; // distance to the next voxel boundary in each x,y,z
+    var ipos = vec3i(floor(ray_pos)); // which voxel we're in
+    let boundary_dt = abs(1.0 / ray_dir); // time to traverse 1 voxel in each x,y,z
+    var next_side_dt = (sign(ray_dir) * (0.5 - fract(ray_pos)) + 0.5) * boundary_dt; // time to reach the next voxel boundary in each x,y,z
+    let ray_sign = vec3i(sign(ray_dir));
     var i = 0;
+    var t = 0.0;
 
     var res = CastResult(false, vec3i(0), vec3f(0.0));
 
-    // raycast forward until we meet empty space
-    // this allows to see though the volume when the camera is inside
     for (; i < steps; i++) {
+        // // early return
         // if out_of_bounds_i(ipos) {
         //     return res;
         // }
 
         let block = sample_block(ipos);
 
-        if (block == 0u) {
-            break;
-        }
-        
-        let mask = side_dist.xyz <= min(side_dist.yzx, side_dist.zxy);
-        side_dist += vec3f(mask) * delta_dist;
-        ipos += vec3i(mask) * ray_step;
-    }
-
-    // now the proper raycast
-    for (; i < steps; i++) {
-        // if out_of_bounds_i(ipos) {
-        //     return res;
-        // }
-
-        let block = sample_block(ipos);
-
-        if (block != 0u) {
+        if block != 0u {
             res.hit = true;
             res.hit_voxel = ipos;
-            res.hit_face = vec3f(ipos); // TODO
+            res.hit_pos = ray_pos + t * ray_dir;
             return res;
         }
         
-        let mask = side_dist.xyz <= min(side_dist.yzx, side_dist.zxy);
-        side_dist += vec3f(mask) * delta_dist;
-        ipos += vec3i(mask) * ray_step;
+        let mask = next_side_dt.xyz <= min(next_side_dt.yzx, next_side_dt.zxy); // which boundary axis is the closest
+        t = min(min(next_side_dt.x, next_side_dt.y), next_side_dt.z);
+        next_side_dt += vec3f(mask) * boundary_dt; // increment the next boundary for the selected axis by 1 voxel.
+        ipos += vec3i(mask) * ray_sign; // advance by 1 voxel along the selected axis
     }
 
     return res;
 }
 
+// is pos is on a cube surface, returns the normal of the corresponding cube face.
+fn cube_face_normal(ipos: vec3i, pos: vec3f) -> vec3f {
+    let off = pos - vec3f(ipos) - 0.5; // value between [-0.5, 0.5]
+    let dist = abs(off);
+    let max_dist = max(max(dist.x, dist.y), dist.z);
+    return sign(off) * vec3f(dist == vec3f(max_dist));
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let dir = (cam.view_mat_inv * normalize(vec4f(
-        in.pos.xy * tan(cam.fov_y / 2.0),
+        in.pos.x * tan(cam.fov_y / 2.0) * cam.aspect,
+        in.pos.y * tan(cam.fov_y / 2.0),
         1.0,
         0.0,
     ))).xyz;
@@ -123,18 +135,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let res = raycast_voxels(cam.pos, dir, 100);
 
     if res.hit {
-        return shade(vec3f(res.hit_voxel), vec3f(0.0, 1.0, 0.0));
+        let normal = cube_face_normal(res.hit_voxel, res.hit_pos);
+        return shade(cam.pos, res.hit_pos, normal);
     } else {
         return vec4f(0.0, 0.0, 0.0, 1.0);
     }
-
-    // let t = -cam.pos.z / dir.z;
-
-    // let hit = cam.pos.xy + t * dir.xy;
-
-    // if all(-1.0 <= hit & hit <= 1.0) {
-    //     return vec4f(1.0);
-    // } else {
-    //     return vec4f(0.0, 0.0, 0.0, 1.0);
-    // }
 }

@@ -2,7 +2,7 @@ use std::iter;
 
 use wgpu::util::DeviceExt;
 use winit::{
-    dpi::LogicalPosition,
+    dpi::{LogicalPosition, LogicalSize},
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
@@ -38,6 +38,8 @@ struct State {
 struct CameraUniform {
     pos: glm::Vec3,
     fov_y: f32,
+    aspect: f32,
+    _pad: [f32; 3], // padding to ensure correct alignment
     view_mat_inv: glm::Mat4x4,
 }
 
@@ -62,8 +64,10 @@ impl Camera {
     pub fn new() -> Self {
         Self {
             uniform: CameraUniform {
-                pos: glm::Vec3::new(0.0, 20.0, -20.0),
+                pos: glm::Vec3::new(0.0, 20.0, -5.0),
                 fov_y: 70.0 / 180.0 * glm::pi::<f32>(),
+                aspect: 1.0,
+                _pad: Default::default(),
                 view_mat_inv: Default::default(),
             },
             quat: glm::Quat::identity(),
@@ -78,7 +82,7 @@ impl Camera {
 impl Controller {
     pub fn new() -> Self {
         Self {
-            speed: 0.1,
+            speed: 0.5,
             sensitivity: 0.005,
             is_forward: false,
             is_back: false,
@@ -172,11 +176,13 @@ struct Blocks {
 
 impl Blocks {
     pub fn new() -> Self {
-        let mut blocks = [[[1; 16]; 16]; 16];
+        let mut blocks = [[[0; 16]; 16]; 16];
 
         for x in 0..16 {
-            for z in 0..16 {
-                blocks[x][0][z] = 1;
+            for y in 0..16 {
+                for z in 0..16 {
+                    blocks[x][y][z] = if rand::random::<f32>() < 0.2 { 1 } else { 0 };
+                }
             }
         }
 
@@ -410,6 +416,7 @@ impl State {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+            self.camera.uniform.aspect = new_size.width as f32 / new_size.height as f32;
         }
     }
 
@@ -476,6 +483,7 @@ pub async fn run() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("Wender")
+        .with_inner_size(LogicalSize::new(800.0, 800.0))
         .build(&event_loop)
         .unwrap();
 
