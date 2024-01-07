@@ -66,7 +66,7 @@ struct CastResult {
 }
 
 fn out_of_bounds_i(pos: vec3i) -> bool {
-    return any(pos < 0 | pos >= 16);
+    return any(pos < vec3(0) | pos >= vec3(16));
 }
 
 fn sample_block(ipos: vec3i) -> u32 {

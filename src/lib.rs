@@ -2,7 +2,7 @@ use std::iter;
 
 use wgpu::util::DeviceExt;
 use winit::{
-    dpi::{LogicalPosition, LogicalSize},
+    dpi::LogicalSize,
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
@@ -29,6 +29,9 @@ struct State {
 
     camera: Camera,
     controller: Controller,
+
+    egui_renderer: egui_wgpu::Renderer,
+    egui_ctx: egui::Context,
 }
 
 // !! careful with the alignments! add padding fields if necessary.
@@ -202,7 +205,7 @@ impl State {
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            dx12_shader_compiler: Default::default(),
+            ..Default::default()
         });
 
         // # Safety
@@ -245,7 +248,7 @@ impl State {
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
-        let config = wgpu::SurfaceConfiguration {
+        let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width,
@@ -254,7 +257,7 @@ impl State {
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
-        surface.configure(&device, &config);
+        surface.configure(&device, &surface_config);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -356,7 +359,7 @@ impl State {
                 module: &shader,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: surface_config.format,
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent::REPLACE,
                         alpha: wgpu::BlendComponent::REPLACE,
@@ -392,12 +395,15 @@ impl State {
 
         let controller = Controller::new();
 
+        let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1);
+        let egui_ctx = egui::Context::default();
+
         Self {
             surface,
             device,
             queue,
             size,
-            config,
+            config: surface_config,
             render_pipeline,
             vertex_buffer,
             camera_buffer,
@@ -407,6 +413,8 @@ impl State {
             cursor_grabbed: false,
             camera,
             controller,
+            egui_renderer,
+            egui_ctx,
         }
     }
 
@@ -429,17 +437,65 @@ impl State {
         self.controller.update_camera(&mut self.camera);
     }
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    fn prepare_egui(
+        &mut self,
+        egui_state: &mut egui_winit::State,
+    ) -> (
+        egui_wgpu::renderer::ScreenDescriptor,
+        Vec<egui::ClippedPrimitive>,
+        egui::FullOutput,
+    ) {
+        let raw_input = egui_state.take_egui_input(&self.window);
+
+        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+            egui::Window::new("Hello").show(&ctx, |ui| {
+                ui.label("hello");
+                ui.button("world");
+            });
+        });
+
+        let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
+            size_in_pixels: [
+                self.window.inner_size().width,
+                self.window.inner_size().height,
+            ],
+            pixels_per_point: self.window.scale_factor() as f32,
+        };
+
+        let tess = self.egui_ctx.tessellate(
+            full_output.shapes.clone(),
+            screen_descriptor.pixels_per_point,
+        );
+
+        (screen_descriptor, tess, full_output)
+    }
+
+    fn render(&mut self, egui_state: &mut egui_winit::State) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let (egui_screen, egui_primitives, egui_output) = self.prepare_egui(egui_state);
 
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
+
+        self.egui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &egui_primitives,
+            &egui_screen,
+        );
+
+        for (id, delta) in &egui_output.textures_delta.set {
+            self.egui_renderer
+                .update_texture(&self.device, &self.queue, *id, delta);
+        }
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -449,21 +505,29 @@ impl State {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                ..Default::default()
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.blocks_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+
             render_pass.draw(0..6, 0..1);
+
+            self.egui_renderer
+                .render(&mut render_pass, &egui_primitives, &egui_screen);
         }
 
         self.queue.submit(iter::once(encoder.finish()));
         output.present();
+
+        for id in &egui_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
 
         Ok(())
     }
@@ -506,12 +570,13 @@ pub async fn run() {
             .expect("Couldn't append canvas to document body.");
     }
 
-    // State::new uses async code, so we're going to wait for it to finish
     let mut state = State::new(window).await;
+
+    let mut egui_state =
+        egui_winit::State::new(state.egui_ctx.viewport_id(), &event_loop, None, None);
 
     event_loop.run(move |event, _, control_flow| {
         control_flow.set_wait();
-
         match event {
             Event::DeviceEvent { ref event, .. } => match event {
                 DeviceEvent::MouseMotion { delta } => {
@@ -525,7 +590,10 @@ pub async fn run() {
                 ref event,
                 window_id,
             } if window_id == state.window.id() => {
-                if !state.input(event) {
+                let egui_winit::EventResponse { consumed, repaint } =
+                    egui_state.on_window_event(&state.egui_ctx, event);
+
+                if !consumed {
                     match event {
                         WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                         WindowEvent::KeyboardInput { input, .. } => {
@@ -570,7 +638,7 @@ pub async fn run() {
             }
             Event::RedrawRequested(window_id) if window_id == state.window.id() => {
                 state.update();
-                match state.render() {
+                match state.render(&mut egui_state) {
                     Ok(_) => {}
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         state.resize(state.size)
