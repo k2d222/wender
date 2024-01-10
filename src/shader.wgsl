@@ -17,6 +17,9 @@ struct Voxels {
 @group(1) @binding(0)
 var<storage, read> voxels: Voxels;
 
+@group(1) @binding(1)
+var<storage, read> palette: array<vec4f>;
+
 struct VertexInput {
     @location(0) position: vec2f,
 }
@@ -39,11 +42,11 @@ fn vs_main(
     return out;
 }
 
-fn shade(view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> vec4f {
+fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> vec4f {
     // return vec4f(pos / 16.0 * 0.9 + 0.1, 1.0);
 
     let ambient_color = vec3f(1.0, 1.0, 1.0) * 0.0;
-    let diffuse_color = vec3f(0.3, 0.0, 1.0) * 0.5;
+    let diffuse_color = albedo.rgb;
     let specular_color = vec3f(1.0, 1.0, 1.0) * 0.1;
     let shininess = 16.0;
 
@@ -138,8 +141,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     if res.hit {
         let normal = cube_face_normal(res.hit_voxel, res.hit_pos);
-        return shade(cam.pos, res.hit_pos, normal);
+        let palette_index = sample_voxel(res.hit_voxel) - 1u;
+        let albedo = palette[palette_index];
+        return shade(albedo, cam.pos, res.hit_pos, normal);
     } else {
-        return vec4f(0.0, 0.0, 0.0, 1.0);
+        // return vec4f(0.0, 0.0, 0.0, 1.0);
+        return palette[0];
     }
 }

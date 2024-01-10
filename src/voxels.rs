@@ -3,6 +3,7 @@ use rayon::prelude::*;
 
 pub struct Voxels {
     voxels: Vec<u32>, // contiguous in z, then y, then x
+    palette: Vec<glm::Vec4>,
     pub dim: glm::TVec3<u32>,
 }
 
@@ -46,10 +47,31 @@ impl Voxels {
             voxels[i] = v.i as u32 + 1;
         });
 
-        Self { voxels, dim }
+        let palette = asset
+            .palette
+            .iter()
+            .map(|c| {
+                glm::vec4(
+                    c.r as f32 / 255.0,
+                    c.g as f32 / 255.0,
+                    c.b as f32 / 255.0,
+                    c.a as f32 / 255.0,
+                )
+            })
+            .collect();
+
+        Self {
+            voxels,
+            palette,
+            dim,
+        }
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn voxels_bytes(&self) -> &[u8] {
         bytemuck::cast_slice(self.voxels.as_slice())
+    }
+
+    pub fn palette_bytes(&self) -> &[u8] {
+        bytemuck::cast_slice(self.palette.as_slice())
     }
 }

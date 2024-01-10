@@ -1,6 +1,7 @@
 mod camera;
 mod ui;
 mod voxels;
+mod wgpu_util;
 
 use std::iter;
 
@@ -19,8 +20,11 @@ use nalgebra_glm as glm;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use crate::camera::{Camera, Controller};
-use crate::voxels::Voxels;
+use crate::{
+    camera::{Camera, Controller},
+    wgpu_util::init_voxels_buffers,
+};
+use crate::{voxels::Voxels, wgpu_util::init_camera_buffers};
 
 struct State {
     surface: wgpu::Surface,
@@ -74,15 +78,13 @@ impl State {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     features: wgpu::Features::empty(),
-                    // WebGL doesn't support all of wgpu's features, so if
-                    // we're building for the web we'll have to disable some.
                     limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_webgl2_defaults()
                     } else {
                         wgpu::Limits::default()
                     },
                 },
-                None, // Trace path
+                None, // trace_path
             )
             .await
             .unwrap();
@@ -110,73 +112,15 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
-        // --- camera
-
         let camera = Camera::new();
 
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera buffer"),
-            contents: camera.as_bytes(),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Bind group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Camera bind group"),
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-        });
-
-        // --- voxels
+        let (camera_buffer, camera_bind_group, camera_bind_group_layout) =
+            init_camera_buffers(&device, camera.as_bytes());
 
         let voxels = Voxels::new();
 
-        let voxels_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Voxels buffer"),
-            contents: voxels.as_bytes(),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let voxels_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Bind group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let voxels_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Voxels bind group"),
-            layout: &voxels_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: voxels_buffer.as_entire_binding(),
-            }],
-        });
+        let (_voxels_buffer, _palette_buffer, voxels_bind_group, voxels_bind_group_layout) =
+            init_voxels_buffers(&device, voxels.voxels_bytes(), voxels.palette_bytes());
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
