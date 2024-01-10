@@ -1,10 +1,16 @@
+mod camera;
+mod ui;
+mod voxels;
+
 use std::iter;
 
+use ui::FpsCounter;
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::LogicalSize,
     event::*,
     event_loop::{ControlFlow, EventLoop},
+    keyboard::{Key, NamedKey},
     window::{Window, WindowBuilder},
 };
 
@@ -12,6 +18,9 @@ use nalgebra_glm as glm;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+
+use crate::camera::{Camera, Controller};
+use crate::voxels::Voxels;
 
 struct State {
     surface: wgpu::Surface,
@@ -23,7 +32,8 @@ struct State {
     vertex_buffer: wgpu::Buffer,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    blocks_bind_group: wgpu::BindGroup,
+    voxels_bind_group: wgpu::BindGroup,
+
     window: Window,
     cursor_grabbed: bool,
 
@@ -32,171 +42,7 @@ struct State {
 
     egui_renderer: egui_wgpu::Renderer,
     egui_ctx: egui::Context,
-}
-
-// !! careful with the alignments! add padding fields if necessary.
-// see https://www.w3.org/TR/WGSL/#alignment-and-size
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    pos: glm::Vec3,
-    fov_y: f32,
-    aspect: f32,
-    _pad: [f32; 3], // padding to ensure correct alignment
-    view_mat_inv: glm::Mat4x4,
-}
-
-struct Camera {
-    uniform: CameraUniform,
-    quat: glm::Quat,
-}
-
-struct Controller {
-    speed: f32,
-    sensitivity: f64,
-    is_forward: bool,
-    is_back: bool,
-    is_left: bool,
-    is_right: bool,
-    is_up: bool,
-    is_down: bool,
-    mouse_pos: (f64, f64),
-}
-
-impl Camera {
-    pub fn new() -> Self {
-        Self {
-            uniform: CameraUniform {
-                pos: glm::Vec3::new(0.0, 20.0, -5.0),
-                fov_y: 70.0 / 180.0 * glm::pi::<f32>(),
-                aspect: 1.0,
-                _pad: Default::default(),
-                view_mat_inv: Default::default(),
-            },
-            quat: glm::Quat::identity(),
-        }
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        bytemuck::bytes_of(&self.uniform)
-    }
-}
-
-impl Controller {
-    pub fn new() -> Self {
-        Self {
-            speed: 0.5,
-            sensitivity: 0.005,
-            is_forward: false,
-            is_back: false,
-            is_left: false,
-            is_right: false,
-            is_up: false,
-            is_down: false,
-            mouse_pos: (0.0, 0.0),
-        }
-    }
-
-    fn process_keyboard(&mut self, input: &KeyboardInput) {
-        let pressed = input.state == ElementState::Pressed;
-
-        match input.virtual_keycode {
-            Some(VirtualKeyCode::W) => {
-                self.is_forward = pressed;
-            }
-            Some(VirtualKeyCode::A) => {
-                self.is_left = pressed;
-            }
-            Some(VirtualKeyCode::S) => {
-                self.is_back = pressed;
-            }
-            Some(VirtualKeyCode::D) => {
-                self.is_right = pressed;
-            }
-            Some(VirtualKeyCode::Space) => {
-                self.is_up = pressed;
-            }
-            Some(VirtualKeyCode::LShift) => {
-                self.is_down = pressed;
-            }
-            _ => {}
-        }
-    }
-
-    fn process_mouse(&mut self, delta: (f64, f64)) {
-        self.mouse_pos.0 += delta.0;
-        self.mouse_pos.1 += delta.1;
-    }
-
-    pub fn update_camera(&mut self, cam: &mut Camera) {
-        let half_angle_x = (self.mouse_pos.1 * self.sensitivity * 0.5) as f32;
-        let half_angle_y = (self.mouse_pos.0 * self.sensitivity * 0.5) as f32;
-        cam.quat = glm::Quat::new(half_angle_y.cos(), 0.0, half_angle_y.sin(), 0.0)
-            * glm::Quat::new(half_angle_x.cos(), half_angle_x.sin(), 0.0, 0.0);
-
-        if self.is_forward {
-            let dir = glm::quat_cast(&cam.quat) * glm::vec4(0.0, 0.0, 1.0, 0.0);
-            cam.uniform.pos += dir.xyz() * self.speed;
-        }
-        if self.is_back {
-            let dir = glm::quat_cast(&cam.quat) * glm::vec4(0.0, 0.0, 1.0, 0.0);
-            cam.uniform.pos -= dir.xyz() * self.speed;
-        }
-        if self.is_left {
-            let dir = glm::quat_cast(&cam.quat) * glm::vec4(1.0, 0.0, 0.0, 0.0);
-            cam.uniform.pos -= dir.xyz() * self.speed;
-            // let half_angle = -self.speed.to_radians() * 2.0;
-            // cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
-        }
-        if self.is_right {
-            let dir = glm::quat_cast(&cam.quat) * glm::vec4(1.0, 0.0, 0.0, 0.0);
-            cam.uniform.pos += dir.xyz() * self.speed;
-            // let half_angle = self.speed.to_radians() * 2.0;
-            // cam.quat *= glm::Quat::new(half_angle.cos(), 0.0, half_angle.sin(), 0.0)
-        }
-        if self.is_up {
-            cam.uniform.pos.y += self.speed;
-        }
-        if self.is_down {
-            cam.uniform.pos.y -= self.speed;
-        }
-
-        cam.uniform.view_mat_inv = glm::quat_cast(&cam.quat);
-    }
-}
-
-// !! careful with the alignments! add padding fields if necessary.
-// see https://www.w3.org/TR/WGSL/#alignment-and-size
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct BlocksUniform {
-    blocks: [[[u32; 16]; 16]; 16],
-}
-
-struct Blocks {
-    uniform: BlocksUniform,
-}
-
-impl Blocks {
-    pub fn new() -> Self {
-        let mut blocks = [[[0; 16]; 16]; 16];
-
-        for x in 0..16 {
-            for y in 0..16 {
-                for z in 0..16 {
-                    blocks[x][y][z] = if rand::random::<f32>() < 0.2 { 1 } else { 0 };
-                }
-            }
-        }
-
-        Self {
-            uniform: BlocksUniform { blocks },
-        }
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        bytemuck::bytes_of(&self.uniform)
-    }
+    fps: FpsCounter,
 }
 
 impl State {
@@ -298,17 +144,17 @@ impl State {
             }],
         });
 
-        // --- blocks
+        // --- voxels
 
-        let blocks = Blocks::new();
+        let voxels = Voxels::new();
 
-        let blocks_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Blocks buffer"),
-            contents: blocks.as_bytes(),
+        let voxels_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Voxels buffer"),
+            contents: voxels.as_bytes(),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        let blocks_bind_group_layout =
+        let voxels_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Bind group layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -323,19 +169,19 @@ impl State {
                 }],
             });
 
-        let blocks_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Blocks bind group"),
-            layout: &blocks_bind_group_layout,
+        let voxels_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Voxels bind group"),
+            layout: &voxels_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: blocks_buffer.as_entire_binding(),
+                resource: voxels_buffer.as_entire_binding(),
             }],
         });
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &blocks_bind_group_layout],
+                bind_group_layouts: &[&camera_bind_group_layout, &voxels_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -397,6 +243,7 @@ impl State {
 
         let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1);
         let egui_ctx = egui::Context::default();
+        let fps = FpsCounter::new();
 
         Self {
             surface,
@@ -408,13 +255,14 @@ impl State {
             vertex_buffer,
             camera_buffer,
             camera_bind_group,
-            blocks_bind_group,
+            voxels_bind_group,
             window,
             cursor_grabbed: false,
             camera,
             controller,
             egui_renderer,
             egui_ctx,
+            fps,
         }
     }
 
@@ -426,11 +274,6 @@ impl State {
             self.surface.configure(&self.device, &self.config);
             self.camera.uniform.aspect = new_size.width as f32 / new_size.height as f32;
         }
-    }
-
-    #[allow(unused_variables)]
-    fn input(&mut self, event: &WindowEvent) -> bool {
-        false
     }
 
     fn update(&mut self) {
@@ -447,10 +290,28 @@ impl State {
     ) {
         let raw_input = egui_state.take_egui_input(&self.window);
 
+        self.fps.tick();
+
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             egui::Window::new("Hello").show(&ctx, |ui| {
+                egui_plot::Plot::new("FPS")
+                    .height(100.0)
+                    .include_y(0)
+                    .include_y(100)
+                    .include_x(0)
+                    .include_x(100)
+                    .auto_bounds(false.into())
+                    .show(ui, |ui| {
+                        let durations = self.fps.durations();
+                        let points = durations
+                            .iter()
+                            .enumerate()
+                            .map(|(n, d)| [n as f64, 1000.0 / d.as_millis() as f64])
+                            .collect::<egui_plot::PlotPoints>();
+                        ui.line(egui_plot::Line::new(points));
+                    });
                 ui.label("hello");
-                ui.button("world");
+                let _ = ui.button("world");
             });
         });
 
@@ -513,7 +374,7 @@ impl State {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.blocks_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.voxels_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
             render_pass.draw(0..6, 0..1);
@@ -544,7 +405,7 @@ pub async fn run() {
         }
     }
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().expect("failed to create event loop");
     let window = WindowBuilder::new()
         .with_title("Wender")
         .with_inner_size(LogicalSize::new(800.0, 800.0))
@@ -572,11 +433,17 @@ pub async fn run() {
 
     let mut state = State::new(window).await;
 
-    let mut egui_state =
-        egui_winit::State::new(state.egui_ctx.viewport_id(), &event_loop, None, None);
+    let mut egui_state = egui_winit::State::new(
+        state.egui_ctx.clone(),
+        state.egui_ctx.viewport_id(),
+        &event_loop,
+        None,
+        None,
+    );
 
-    event_loop.run(move |event, _, control_flow| {
-        control_flow.set_wait();
+    event_loop.set_control_flow(ControlFlow::Wait);
+
+    event_loop.run(move |event, elwt| {
         match event {
             Event::DeviceEvent { ref event, .. } => match event {
                 DeviceEvent::MouseMotion { delta } => {
@@ -590,15 +457,17 @@ pub async fn run() {
                 ref event,
                 window_id,
             } if window_id == state.window.id() => {
-                let egui_winit::EventResponse { consumed, repaint } =
-                    egui_state.on_window_event(&state.egui_ctx, event);
+                let egui_winit::EventResponse {
+                    consumed,
+                    repaint: _,
+                } = egui_state.on_window_event(&state.window, event);
 
                 if !consumed {
                     match event {
-                        WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                        WindowEvent::KeyboardInput { input, .. } => {
-                            if input.state == ElementState::Pressed
-                                && input.virtual_keycode == Some(VirtualKeyCode::Escape)
+                        WindowEvent::CloseRequested => elwt.exit(),
+                        WindowEvent::KeyboardInput { event, .. } => {
+                            if event.state == ElementState::Pressed
+                                && event.logical_key == Key::Named(NamedKey::Escape)
                             {
                                 state
                                     .window
@@ -607,14 +476,11 @@ pub async fn run() {
                                 state.window.set_cursor_visible(true);
                                 state.cursor_grabbed = false;
                             } else {
-                                state.controller.process_keyboard(input);
+                                state.controller.process_keyboard(event);
                             }
                         }
                         WindowEvent::Resized(physical_size) => {
                             state.resize(*physical_size);
-                        }
-                        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                            state.resize(**new_inner_size);
                         }
                         WindowEvent::MouseInput {
                             state: button_state,
@@ -632,24 +498,24 @@ pub async fn run() {
                                 state.cursor_grabbed = true;
                             }
                         }
+                        WindowEvent::RedrawRequested => {
+                            state.update();
+                            match state.render(&mut egui_state) {
+                                Ok(_) => {}
+                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                    state.resize(state.size);
+                                }
+                                Err(wgpu::SurfaceError::OutOfMemory) => {
+                                    elwt.exit();
+                                }
+                                Err(wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
+                            }
+                        }
                         _ => {}
                     }
                 }
             }
-            Event::RedrawRequested(window_id) if window_id == state.window.id() => {
-                state.update();
-                match state.render(&mut egui_state) {
-                    Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        state.resize(state.size)
-                    }
-                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                    Err(wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
-                }
-            }
-            Event::MainEventsCleared => {
-                // RedrawRequested will only trigger once, unless we manually
-                // request it.
+            Event::AboutToWait => {
                 state.window.request_redraw();
             }
             _ => {}

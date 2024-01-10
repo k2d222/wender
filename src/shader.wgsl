@@ -8,12 +8,14 @@ struct Camera {
 @group(0) @binding(0)
 var<uniform> cam: Camera;
 
-struct Blocks {
-    data: array<array<array<u32, 16>, 16>, 16>,
+const dim = vec3(256, 256, 256);
+
+struct Voxels {
+    data: array<array<array<u32, dim.z>, dim.y>, dim.x>,
 }
 
 @group(1) @binding(0)
-var<storage, read> blocks: Blocks;
+var<storage, read> voxels: Voxels;
 
 struct VertexInput {
     @location(0) position: vec2f,
@@ -41,7 +43,7 @@ fn shade(view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> vec4f {
     // return vec4f(pos / 16.0 * 0.9 + 0.1, 1.0);
 
     let ambient_color = vec3f(1.0, 1.0, 1.0) * 0.0;
-    let diffuse_color = vec3f(0.0, 0.0, 1.0) * 5.0;
+    let diffuse_color = vec3f(0.3, 0.0, 1.0) * 0.5;
     let specular_color = vec3f(1.0, 1.0, 1.0) * 0.1;
     let shininess = 16.0;
 
@@ -52,8 +54,8 @@ fn shade(view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> vec4f {
     // var sun_light_dir = normalize(vec3f(1.0, -1.0, 1.0));
 
     let ambient_term = ambient_color;
-    let diffuse_term = max(dot(hit_normal, light_dir), 0.0) * diffuse_color / light_dist;
-    let specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color / light_dist;
+    let diffuse_term = max(dot(hit_normal, light_dir), 0.0) * diffuse_color;
+    let specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color;
 
     let shading_color = ambient_term + diffuse_term + specular_term;
     return vec4f(shading_color, 1.0);
@@ -66,14 +68,14 @@ struct CastResult {
 }
 
 fn out_of_bounds_i(pos: vec3i) -> bool {
-    return any(pos < vec3(0) | pos >= vec3(16));
+    return any(pos < vec3(0) | pos >= dim);
 }
 
-fn sample_block(ipos: vec3i) -> u32 {
+fn sample_voxel(ipos: vec3i) -> u32 {
     if out_of_bounds_i(ipos) {
         return 0u;
     } else {
-        return blocks.data[ipos.x][ipos.y][ipos.z];
+        return voxels.data[ipos.x][ipos.y][ipos.z];
     }
 }
 
@@ -97,9 +99,9 @@ fn raycast_voxels(ray_pos: vec3f, ray_dir: vec3f, steps: i32) -> CastResult {
         //     return res;
         // }
 
-        let block = sample_block(ipos);
+        let voxel = sample_voxel(ipos);
 
-        if block != 0u {
+        if voxel != 0u {
             res.hit = true;
             res.hit_voxel = ipos;
             res.hit_pos = ray_pos + t * ray_dir;
@@ -132,7 +134,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         0.0,
     ))).xyz;
 
-    let res = raycast_voxels(cam.pos, dir, 100);
+    let res = raycast_voxels(cam.pos, dir, 2000);
 
     if res.hit {
         let normal = cube_face_normal(res.hit_voxel, res.hit_pos);
