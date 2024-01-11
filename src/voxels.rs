@@ -1,10 +1,20 @@
 use nalgebra_glm as glm;
-use rayon::prelude::*;
+use ndarray::{Array3, Axis};
+use rayon::prelude::{
+    IndexedParallelIterator, IntoParallelIterator, ParallelBridge, ParallelIterator,
+};
+// use rayon::prelude::*;
 
 pub struct Voxels {
-    voxels: Vec<u32>, // contiguous in z, then y, then x
+    voxels: Array3<u32>,
     palette: Vec<glm::Vec4>,
     pub dim: glm::TVec3<u32>,
+}
+// the octants are "pointers" (offsets in the contiguous memory buffer) to a next node.
+// at index 0 lies the root svo node.
+// if an octant pointer is 0, then it means empty (sparse).
+pub struct Svo1 {
+    octants: [u32; 8],
 }
 
 impl Voxels {
@@ -31,6 +41,12 @@ impl Voxels {
         //     .collect();
         // println!("done");
 
+        // let mut voxels = Array3::uninit((dim.x as usize, dim.y as usize, dim.z as usize))
+        //     .indexed_iter_mut()
+        //     .par_bridge()
+        //     .for_each(|(dim, mut row)| {
+        //     });
+
         let asset =
             dot_vox::load("assets/realistic_terrain.vox").expect("failed to load magicvoxel asset");
         let model = asset
@@ -41,10 +57,9 @@ impl Voxels {
         let dim = glm::vec3(model.size.x, model.size.y, model.size.z);
         println!("dim: {dim}");
 
-        let mut voxels = vec![0; dim.product() as usize];
+        let mut voxels = Array3::zeros((dim.x as usize, dim.y as usize, dim.z as usize));
         model.voxels.iter().for_each(|v| {
-            let i = (v.y as u32 + v.z as u32 * dim.z + v.x as u32 * dim.z * dim.y) as usize;
-            voxels[i] = v.i as u32 + 1;
+            voxels[(v.x as usize, v.z as usize, v.y as usize)] = v.i as u32 + 1;
         });
 
         let palette = asset
@@ -67,8 +82,12 @@ impl Voxels {
         }
     }
 
+    // pub fn build_svo(&self) -> Svo {
+    //     let leaves = self
+    // }
+
     pub fn voxels_bytes(&self) -> &[u8] {
-        bytemuck::cast_slice(self.voxels.as_slice())
+        bytemuck::cast_slice(self.voxels.as_slice().unwrap())
     }
 
     pub fn palette_bytes(&self) -> &[u8] {
