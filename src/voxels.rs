@@ -74,69 +74,69 @@ impl Voxels {
     }
 
     pub fn build_svo(voxels: &Array3<u32>) -> Vec<SvoNode> {
-        fn leaf_svo(voxels: ArrayView3<u32>) -> SvoNode {
-            SvoNode {
-                octants: [
-                    voxels[(0, 0, 0)],
-                    voxels[(0, 0, 1)],
-                    voxels[(0, 1, 0)],
-                    voxels[(0, 1, 1)],
-                    voxels[(1, 0, 0)],
-                    voxels[(1, 0, 1)],
-                    voxels[(1, 1, 0)],
-                    voxels[(1, 1, 1)],
-                ],
-            }
-        }
+        let mut l1 = Zip::from(voxels.exact_chunks((2, 2, 2)))
+            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
+        let mut l2 = Zip::from(l1.exact_chunks((2, 2, 2)))
+            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
+        let mut l3 = Zip::from(l2.exact_chunks((2, 2, 2)))
+            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
+        let mut l4 = Zip::from(l3.exact_chunks((2, 2, 2)))
+            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
+        let mut l5 = Zip::from(l4.exact_chunks((2, 2, 2)))
+            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
+        let mut l6 = Zip::from(l5.exact_chunks((2, 2, 2)))
+            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
+        let mut l7 = Zip::from(l6.exact_chunks((2, 2, 2)))
+            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
 
-        fn node_svo(voxels: ArrayView3<SvoNode>) -> SvoNode {
-            SvoNode {
-                octants: [
-                    if voxels[(0, 0, 0)].is_empty() { 0 } else { 1 },
-                    if voxels[(0, 0, 1)].is_empty() { 0 } else { 1 },
-                    if voxels[(0, 1, 0)].is_empty() { 0 } else { 1 },
-                    if voxels[(0, 1, 1)].is_empty() { 0 } else { 1 },
-                    if voxels[(1, 0, 0)].is_empty() { 0 } else { 1 },
-                    if voxels[(1, 0, 1)].is_empty() { 0 } else { 1 },
-                    if voxels[(1, 1, 0)].is_empty() { 0 } else { 1 },
-                    if voxels[(1, 1, 1)].is_empty() { 0 } else { 1 },
-                ],
-            }
-        }
-
-        let l0 = Zip::from(voxels.exact_chunks((2, 2, 2))).par_map_collect(|o| leaf_svo(o));
-        let l1 = Zip::from(l0.exact_chunks((2, 2, 2))).par_map_collect(|o| node_svo(o));
-        let l2 = Zip::from(l1.exact_chunks((2, 2, 2))).par_map_collect(|o| node_svo(o));
-        let l3 = Zip::from(l2.exact_chunks((2, 2, 2))).par_map_collect(|o| node_svo(o));
-        let l4 = Zip::from(l3.exact_chunks((2, 2, 2))).par_map_collect(|o| node_svo(o));
-        let l5 = Zip::from(l4.exact_chunks((2, 2, 2))).par_map_collect(|o| node_svo(o));
-        let l6 = Zip::from(l5.exact_chunks((2, 2, 2))).par_map_collect(|o| node_svo(o));
-        let l7 = Zip::from(l6.exact_chunks((2, 2, 2))).par_map_collect(|o| node_svo(o));
-
-        let mut vec = Vec::new();
         let mut ptr = 0u32;
 
-        let mut update_indices = |l: Array3<SvoNode>| {
-            // ptr += l.iter().filter(|o| o.is_full()).count() as u32;
-            l.into_iter().for_each(|mut o| {
-                if o.is_full() {
-                    o.octants.iter_mut().filter(|p| **p != 0).for_each(|p| {
-                        ptr += 1;
-                        *p = ptr;
-                    });
-                    vec.push(o);
-                }
+        let mut update_indices = |l: &mut Array3<u32>| {
+            l.iter_mut().filter(|o| **o != 0).for_each(|o| {
+                ptr += 1;
+                *o = ptr;
             });
         };
 
-        update_indices(l7);
-        update_indices(l6);
-        update_indices(l5);
-        update_indices(l4);
-        update_indices(l3);
-        update_indices(l2);
-        update_indices(l1);
-        vec.extend(l0.into_iter());
+        update_indices(&mut l7);
+        update_indices(&mut l6);
+        update_indices(&mut l5);
+        update_indices(&mut l4);
+        update_indices(&mut l3);
+        update_indices(&mut l2);
+        update_indices(&mut l1);
+
+        let mut vec = Vec::new();
+
+        let mut build_svo = |l: &Array3<u32>| {
+            l.exact_chunks((2, 2, 2))
+                .into_iter()
+                .filter(|o| o.iter().any(|o| *o != 0))
+                .for_each(|o| {
+                    let svo = SvoNode {
+                        octants: [
+                            o[(0, 0, 0)],
+                            o[(0, 0, 1)],
+                            o[(0, 1, 0)],
+                            o[(0, 1, 1)],
+                            o[(1, 0, 0)],
+                            o[(1, 0, 1)],
+                            o[(1, 1, 0)],
+                            o[(1, 1, 1)],
+                        ],
+                    };
+                    vec.push(svo);
+                });
+        };
+
+        build_svo(&l7);
+        build_svo(&l6);
+        build_svo(&l5);
+        build_svo(&l4);
+        build_svo(&l3);
+        build_svo(&l2);
+        build_svo(&l1);
+        build_svo(voxels);
 
         vec
 
@@ -146,6 +146,21 @@ impl Voxels {
         //     },
         //     SvoNode {
         //         octants: [2, 0, 0, 2, 0, 2, 2, 0],
+        //     },
+        //     SvoNode {
+        //         octants: [3, 0, 0, 3, 0, 3, 3, 0],
+        //     },
+        //     SvoNode {
+        //         octants: [4, 0, 0, 4, 0, 4, 4, 0],
+        //     },
+        //     SvoNode {
+        //         octants: [5, 0, 0, 5, 0, 5, 5, 0],
+        //     },
+        //     SvoNode {
+        //         octants: [6, 0, 0, 6, 0, 6, 6, 0],
+        //     },
+        //     SvoNode {
+        //         octants: [7, 0, 0, 7, 0, 7, 7, 0],
         //     },
         //     SvoNode {
         //         octants: [1, 1, 1, 1, 1, 1, 1, 1],

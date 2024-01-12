@@ -1,3 +1,4 @@
+workspace = { members = ["wgsl_preproc"] }
 [package]
 name = "wender"
 version = "0.1.0"
@@ -25,6 +26,7 @@ itertools = "0.12.0"
 dot_vox = "5.1.1"
 nalgebra = "0.32.3"
 ndarray = { version = "0.15.6", features = ["rayon"] }
+regex = "1.10.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"

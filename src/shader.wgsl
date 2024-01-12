@@ -104,25 +104,35 @@ fn intersects(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
     let intersects = t_min <= t_max;
 
     if intersects {
-        return Intersect(t_min, t_max);
+        return Intersect(max(0.0, t_min), t_max);
     } else {
         return Intersect(-1.0, -1.0);
     }
 }
 
-fn raycast_svo_3(svo_index: u32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    var res = CastResult(true, vec3i(0), ray_pos, vec4f(0.0, 0.1, 0.0, 1.0));
-    return res;
+fn raycast_svo_0(svo_index: u32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
+    var res = CastResult(true, vec3i(0), ray_pos, vec4f(0.0, 0.0, 0.0, 1.0));
+    let t = intersects(ray_pos, ray_dir);
+
+    // no hit
+    if t.t_max < 0.0 {
+        res.hit = false;
+        return res;
+    }
+    else {
+        res.hit_pos = ray_pos + t.t_min * ray_dir;
+        return res;
+    }
 }
 
-fn raycast_svo_4(svo_index: u32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
+#[recursive 8]
+fn raycast_svo(svo_index: u32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
     var res = CastResult(true, vec3i(0), ray_pos, vec4f(0.0, 0.0, 0.0, 1.0));
 
-    // variables for DDA
     var t = intersects(ray_pos, ray_dir);
 
     // no hit
-    if t.t_min < 0.0 {
+    if t.t_max < 0.0 {
         res.hit = false;
         return res;
     }
@@ -138,12 +148,12 @@ fn raycast_svo_4(svo_index: u32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
 
             if next_index == 0u { // octant is empty
                 let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
+                t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.00001;
             }
             else { // octant if non-empty
                 res.col.r += 0.1;
                 let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                let recurse = raycast_svo_3(next_index, tr_pos, ray_dir);
+                let recurse = raycast_svo(next_index, tr_pos, ray_dir);
 
                 if recurse.hit { // ray hit something recusively
                     res.hit = true;
@@ -153,205 +163,7 @@ fn raycast_svo_4(svo_index: u32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
                 }
                 else { // ray went through recursive octants
                     let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                    t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
-                }
-            }
-        }
-
-        // ray left the octants
-        res.hit = false;
-        return res;
-    }
-}
-
-fn raycast_svo_5(svo_index: u32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    var res = CastResult(true, vec3i(0), ray_pos, vec4f(0.0, 0.0, 0.0, 1.0));
-
-    // variables for DDA
-    var t = intersects(ray_pos, ray_dir);
-
-    // no hit
-    if t.t_min < 0.0 {
-        res.hit = false;
-        return res;
-    }
-
-    // test the octants
-    else {
-        res.col.r += 0.1;
-        var node = svo[svo_index];
-        for (var i = 0; i < 4; i++) {
-            let octant = step(vec3f(0.5), ray_pos + t.t_min * ray_dir); // vec of 1/0 identifying octants, from (0,0,0) to (1,1,1)
-            let octant_index = u32(dot(octant, vec3f(4.0, 2.0, 1.0))); // octant to index: x*4 + y*2 + z = 0b(xyz)
-            let next_index = node.octants[octant_index];
-
-            if next_index == 0u { // octant is empty
-                let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
-            }
-            else { // octant if non-empty
-                res.col.r += 0.1;
-                let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                let recurse = raycast_svo_4(next_index, tr_pos, ray_dir);
-
-                if recurse.hit { // ray hit something recusively
-                    res.hit = true;
-                    res.hit_pos = recurse.hit_pos * 0.5 + octant * 0.5;
-                    res.col += recurse.col;
-                    return res;
-                }
-                else { // ray went through recursive octants
-                    let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                    t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
-                }
-            }
-        }
-
-        // ray left the octants
-        res.hit = false;
-        return res;
-    }
-}
-
-fn raycast_svo_6(svo_index: u32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    var res = CastResult(true, vec3i(0), ray_pos, vec4f(0.0, 0.0, 0.0, 1.0));
-
-    // variables for DDA
-    var t = intersects(ray_pos, ray_dir);
-
-    // no hit
-    if t.t_min < 0.0 {
-        res.hit = false;
-        return res;
-    }
-
-    // test the octants
-    else {
-        res.col.r += 0.1;
-        var node = svo[svo_index];
-        for (var i = 0; i < 4; i++) {
-            let octant = step(vec3f(0.5), ray_pos + t.t_min * ray_dir); // vec of 1/0 identifying octants, from (0,0,0) to (1,1,1)
-            let octant_index = u32(dot(octant, vec3f(4.0, 2.0, 1.0))); // octant to index: x*4 + y*2 + z = 0b(xyz)
-            let next_index = node.octants[octant_index];
-
-            if next_index == 0u { // octant is empty
-                let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
-            }
-            else { // octant if non-empty
-                res.col.r += 0.1;
-                let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                let recurse = raycast_svo_5(next_index, tr_pos, ray_dir);
-
-                if recurse.hit { // ray hit something recusively
-                    res.hit = true;
-                    res.hit_pos = recurse.hit_pos * 0.5 + octant * 0.5;
-                    res.col += recurse.col;
-                    return res;
-                }
-                else { // ray went through recursive octants
-                    let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                    t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
-                }
-            }
-        }
-
-        // ray left the octants
-        res.hit = false;
-        return res;
-    }
-}
-
-fn raycast_svo_7(svo_index: u32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    var res = CastResult(true, vec3i(0), ray_pos, vec4f(0.0, 0.0, 0.0, 1.0));
-
-    // variables for DDA
-    var t = intersects(ray_pos, ray_dir);
-
-    // no hit
-    if t.t_min < 0.0 {
-        res.hit = false;
-        return res;
-    }
-
-    // test the octants
-    else {
-        res.col.r += 0.1;
-        var node = svo[svo_index];
-        for (var i = 0; i < 4; i++) {
-            let octant = step(vec3f(0.5), ray_pos + t.t_min * ray_dir); // vec of 1/0 identifying octants, from (0,0,0) to (1,1,1)
-            let octant_index = u32(dot(octant, vec3f(4.0, 2.0, 1.0))); // octant to index: x*4 + y*2 + z = 0b(xyz)
-            let next_index = node.octants[octant_index];
-
-            if next_index == 0u { // octant is empty
-                let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
-            }
-            else { // octant if non-empty
-                res.col.r += 0.1;
-                let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                let recurse = raycast_svo_6(next_index, tr_pos, ray_dir);
-
-                if recurse.hit { // ray hit something recusively
-                    res.hit = true;
-                    res.hit_pos = recurse.hit_pos * 0.5 + octant * 0.5;
-                    res.col += recurse.col;
-                    return res;
-                }
-                else { // ray went through recursive octants
-                    let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                    t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
-                }
-            }
-        }
-
-        // ray left the octants
-        res.hit = false;
-        return res;
-    }
-}
-
-// ray_pos must be in svo level's units (i.e. 1 ray_pos unit is 2^8=256 voxels)
-fn raycast_svo_8(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    var res = CastResult(true, vec3i(0), ray_pos, vec4f(0.0, 0.0, 0.0, 1.0));
-    let svo_index = 0u;
-
-    // variables for DDA
-    var t = intersects(ray_pos, ray_dir);
-
-    // no hit
-    if t.t_min < 0.0 {
-        res.hit = false;
-        return res;
-    }
-
-    // test the octants
-    else {
-        res.col.r += 0.1;
-        var node = svo[svo_index];
-        for (var i = 0; i < 4; i++) {
-            let octant = step(vec3f(0.5), ray_pos + t.t_min * ray_dir); // vec of 1/0 identifying octants, from (0,0,0) to (1,1,1)
-            let octant_index = u32(dot(octant, vec3f(4.0, 2.0, 1.0))); // octant to index: x*4 + y*2 + z = 0b(xyz)
-            let next_index = node.octants[octant_index];
-
-            if next_index == 0u { // octant is empty
-                let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
-            }
-            else { // octant if non-empty
-                res.col.r += 0.1;
-                let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                let recurse = raycast_svo_7(next_index, tr_pos, ray_dir);
-
-                if recurse.hit { // ray hit something recusively
-                    res.hit = true;
-                    res.hit_pos = recurse.hit_pos * 0.5 + octant * 0.5;
-                    res.col += recurse.col;
-                    return res;
-                }
-                else { // ray went through recursive octants
-                    let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                    t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.001;
+                    t.t_min = intersects(tr_pos, ray_dir).t_max * 0.5 + 0.00001;
                 }
             }
         }
@@ -430,7 +242,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     ))).xyz;
 
     // let res = raycast_voxels(cam.pos, dir, 2000);
-    let res = raycast_svo_8(cam.pos / 256.0, dir);
+    let res = raycast_svo_7(0u, cam.pos / 256.0, dir);
     // return res.col;
 
     if res.hit {
@@ -439,7 +251,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         // let albedo = palette[palette_index];
         // let albedo = vec4f(1.0);
         // return shade(albedo, cam.pos, res.hit_pos, normal);
-        return res.col;
+        // return res.col;
+        return vec4f(res.hit_pos, 1.0);
     } else {
         return vec4f(0.0, 0.0, 0.0, 1.0);
         // return palette[0];

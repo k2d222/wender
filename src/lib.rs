@@ -1,4 +1,5 @@
 mod camera;
+mod preproc;
 mod ui;
 mod voxels;
 mod wgpu_util;
@@ -22,6 +23,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     camera::{Camera, Controller},
+    preproc::preprocess_wgsl,
     wgpu_util::init_voxels_buffers,
 };
 use crate::{voxels::Voxels, wgpu_util::init_camera_buffers};
@@ -107,9 +109,11 @@ impl State {
         };
         surface.configure(&device, &surface_config);
 
+        let shader_source = preprocess_wgsl(include_str!("shader.wgsl"));
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(shader_source),
         });
 
         let camera = Camera::new();
