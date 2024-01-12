@@ -120,7 +120,7 @@ impl State {
         let voxels = Voxels::new();
 
         let (_voxels_buffer, _palette_buffer, voxels_bind_group, voxels_bind_group_layout) =
-            init_voxels_buffers(&device, voxels.voxels_bytes(), voxels.palette_bytes());
+            init_voxels_buffers(&device, voxels.svo_bytes(), voxels.palette_bytes());
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -260,10 +260,7 @@ impl State {
         });
 
         let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
-            size_in_pixels: [
-                self.window.inner_size().width,
-                self.window.inner_size().height,
-            ],
+            size_in_pixels: [self.config.width, self.config.height],
             pixels_per_point: self.window.scale_factor() as f32,
         };
 
@@ -387,86 +384,92 @@ pub async fn run() {
 
     event_loop.set_control_flow(ControlFlow::Wait);
 
-    event_loop.run(move |event, elwt| {
-        match event {
-            Event::DeviceEvent { ref event, .. } => match event {
-                DeviceEvent::MouseMotion { delta } => {
-                    if state.cursor_grabbed {
-                        state.controller.process_mouse(*delta);
+    event_loop
+        .run(move |event, elwt| {
+            match event {
+                Event::DeviceEvent { ref event, .. } => match event {
+                    DeviceEvent::MouseMotion { delta } => {
+                        if state.cursor_grabbed {
+                            state.controller.process_mouse(*delta);
+                        }
                     }
+                    _ => {}
+                },
+                Event::WindowEvent {
+                    ref event,
+                    window_id,
+                } if window_id == state.window.id() => {
+                    let egui_winit::EventResponse {
+                        consumed,
+                        repaint: _,
+                    } = egui_state.on_window_event(&state.window, event);
+
+                    if !consumed {
+                        match event {
+                            WindowEvent::CloseRequested => elwt.exit(),
+                            WindowEvent::KeyboardInput { event, .. } => {
+                                if event.state == ElementState::Pressed
+                                    && event.logical_key == Key::Named(NamedKey::Escape)
+                                {
+                                    state
+                                        .window
+                                        .set_cursor_grab(winit::window::CursorGrabMode::None)
+                                        .ok();
+                                    state.window.set_cursor_visible(true);
+                                    state.cursor_grabbed = false;
+                                } else {
+                                    state.controller.process_keyboard(event);
+                                }
+                            }
+                            WindowEvent::Resized(physical_size) => {
+                                state.resize(*physical_size);
+                            }
+                            WindowEvent::MouseInput {
+                                state: button_state,
+                                button,
+                                ..
+                            } => {
+                                if *button_state == ElementState::Pressed
+                                    && *button == MouseButton::Left
+                                {
+                                    state
+                                        .window
+                                        .set_cursor_grab(winit::window::CursorGrabMode::Locked)
+                                        .ok();
+                                    state.window.set_cursor_visible(false);
+                                    state.cursor_grabbed = true;
+                                }
+                            }
+                            WindowEvent::RedrawRequested => {
+                                state.update();
+                                match state.render(&mut egui_state) {
+                                    Ok(_) => {}
+                                    Err(
+                                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated,
+                                    ) => {
+                                        state.resize(state.size);
+                                    }
+                                    Err(wgpu::SurfaceError::OutOfMemory) => {
+                                        elwt.exit();
+                                    }
+                                    Err(wgpu::SurfaceError::Timeout) => {
+                                        log::warn!("Surface timeout")
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Event::AboutToWait => {
+                    state.window.request_redraw();
                 }
                 _ => {}
-            },
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == state.window.id() => {
-                let egui_winit::EventResponse {
-                    consumed,
-                    repaint: _,
-                } = egui_state.on_window_event(&state.window, event);
-
-                if !consumed {
-                    match event {
-                        WindowEvent::CloseRequested => elwt.exit(),
-                        WindowEvent::KeyboardInput { event, .. } => {
-                            if event.state == ElementState::Pressed
-                                && event.logical_key == Key::Named(NamedKey::Escape)
-                            {
-                                state
-                                    .window
-                                    .set_cursor_grab(winit::window::CursorGrabMode::None)
-                                    .ok();
-                                state.window.set_cursor_visible(true);
-                                state.cursor_grabbed = false;
-                            } else {
-                                state.controller.process_keyboard(event);
-                            }
-                        }
-                        WindowEvent::Resized(physical_size) => {
-                            state.resize(*physical_size);
-                        }
-                        WindowEvent::MouseInput {
-                            state: button_state,
-                            button,
-                            ..
-                        } => {
-                            if *button_state == ElementState::Pressed
-                                && *button == MouseButton::Left
-                            {
-                                state
-                                    .window
-                                    .set_cursor_grab(winit::window::CursorGrabMode::Locked)
-                                    .ok();
-                                state.window.set_cursor_visible(false);
-                                state.cursor_grabbed = true;
-                            }
-                        }
-                        WindowEvent::RedrawRequested => {
-                            state.update();
-                            match state.render(&mut egui_state) {
-                                Ok(_) => {}
-                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                                    state.resize(state.size);
-                                }
-                                Err(wgpu::SurfaceError::OutOfMemory) => {
-                                    elwt.exit();
-                                }
-                                Err(wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
-                            }
-                        }
-                        _ => {}
-                    }
-                }
             }
-            Event::AboutToWait => {
-                state.window.request_redraw();
-            }
-            _ => {}
-        }
 
-        state
-            .queue
-            .write_buffer(&state.camera_buffer, 0, state.camera.as_bytes());
-    });
+            state
+                .queue
+                .write_buffer(&state.camera_buffer, 0, state.camera.as_bytes());
+        })
+        .expect("event loop run failed");
 }

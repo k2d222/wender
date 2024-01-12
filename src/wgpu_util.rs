@@ -3,12 +3,12 @@ use wgpu::*;
 
 pub(crate) fn init_voxels_buffers(
     device: &Device,
-    voxels_data: &[u8],
+    svo_data: &[u8],
     palette_data: &[u8],
 ) -> (Buffer, Buffer, BindGroup, BindGroupLayout) {
     let voxels_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("voxels buffer"),
-        contents: voxels_data,
+        label: Some("svo buffer"),
+        contents: svo_data,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
     });
 

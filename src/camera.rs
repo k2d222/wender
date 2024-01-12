@@ -56,7 +56,7 @@ impl Camera {
 impl Controller {
     pub fn new() -> Self {
         Self {
-            speed: 0.5,
+            speed: 2.0,
             sensitivity: 0.005,
             is_forward: false,
             is_back: false,

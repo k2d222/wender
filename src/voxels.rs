@@ -138,9 +138,28 @@ impl Voxels {
         update_indices(l1);
         vec.extend(l0.into_iter());
 
-        println!("{} {}", vec.len(), ptr);
+        // vec
 
-        vec
+        vec![
+            SvoNode {
+                octants: [2, 0, 0, 3, 0, 4, 5, 0],
+            },
+            SvoNode {
+                octants: [1, 1, 1, 1, 1, 1, 1, 1],
+            },
+            SvoNode {
+                octants: [1, 0, 0, 1, 0, 1, 1, 0],
+            },
+            SvoNode {
+                octants: [1, 0, 0, 1, 0, 1, 1, 0],
+            },
+            SvoNode {
+                octants: [1, 0, 0, 1, 0, 1, 1, 0],
+            },
+            SvoNode {
+                octants: [1, 0, 0, 1, 0, 1, 1, 0],
+            },
+        ]
     }
 
     pub fn voxels_bytes(&self) -> &[u8] {
