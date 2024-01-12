@@ -138,6 +138,8 @@ impl Voxels {
         build_svo(&l1);
         build_svo(voxels);
 
+        println!("{}", vec.len());
+
         vec
 
         // vec![

@@ -66,7 +66,7 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
 }
 
 struct CastResult {
-    hit: bool,
+    hit: u32,
     hit_pos: vec3f,
 }
 
@@ -95,11 +95,35 @@ fn intersection(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
     return Intersect(t_min, t_max);
 }
 
-fn raycast_svo_0(svo_index: u32, t: f32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    return CastResult(true, ray_pos + t * ray_dir);
+fn front_intersection(ray_pos: vec3f, ray_dir: vec3f) -> f32 {
+    let inv_dir = 1.0 / ray_dir;
+
+    let t1 = (0.0 - ray_pos) * inv_dir;
+    let t2 = (1.0 - ray_pos) * inv_dir;
+
+    let a_min = min(t1, t2);
+    let t_min = max(max(a_min.x, a_min.y), a_min.z);
+
+    return t_min;
 }
 
-#[recursive 8]
+fn back_intersection(ray_pos: vec3f, ray_dir: vec3f) -> f32 {
+    let inv_dir = 1.0 / ray_dir;
+
+    let t1 = (0.0 - ray_pos) * inv_dir;
+    let t2 = (1.0 - ray_pos) * inv_dir;
+
+    let a_max = max(t1, t2);
+    let t_max = min(min(a_max.x, a_max.y), a_max.z);
+
+    return t_max;
+}
+
+fn raycast_svo_0(svo_index: u32, t: f32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
+    return CastResult(svo_index, ray_pos + t * ray_dir);
+}
+
+#[recursive 9]
 fn raycast_svo(svo_index: u32, _t: f32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
     var t = _t;
     var node = svo[svo_index];
@@ -110,39 +134,38 @@ fn raycast_svo(svo_index: u32, _t: f32, ray_pos: vec3f, ray_dir: vec3f) -> CastR
         let octant_index = u32(dot(octant, vec3f(4.0, 2.0, 1.0))); // octant to index: x*4 + y*2 + z = 0b(xyz)
         let next_index = node.octants[octant_index];
 
-        if next_index == 0u { // octant is empty, continue forward
-            let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-            t = intersection(tr_pos, ray_dir).t_max * 0.5 + 0.00001;
-        }
-        else { // octant if non-empty
+        if next_index != 0u { // octant non-empty
             let tr_pos = (ray_pos - octant * 0.5) * 2.0;
             var recurse = raycast_svo(next_index, t * 2.0, tr_pos, ray_dir);
 
-            if recurse.hit { // ray hit something recusively
+            if recurse.hit != 0u { // ray hit something recusively
                 recurse.hit_pos = recurse.hit_pos * 0.5 + octant * 0.5;
                 return recurse;
             }
-            else { // ray went through recursive octants
-                let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-                t = intersection(tr_pos, ray_dir).t_max * 0.5 + 0.00001;
-            }
         }
+
+        // next octant
+        let tr_pos = (ray_pos - octant * 0.5) * 2.0;
+        t = back_intersection(tr_pos, ray_dir) * 0.5 + 0.00001;
     }
 
     // ray left the octants
-    return CastResult(false, vec3f(0.0));
+    return CastResult(0u, vec3f(0.0));
 }
 
 fn raycast_svo(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    var t = intersection(ray_pos, ray_dir);
+    let tr_pos = ray_pos / 256.0;
+    var t = intersection(tr_pos, ray_dir);
 
     // no hit
-    if t.t_min > t.t_max {
-        return CastResult(false, vec3f(0.0));
+    if t.t_min > t.t_max || t.t_max < 0.0 {
+        return CastResult(0u, vec3f(0.0));
     }
 
     else {
-        return raycast_svo_7(0u, t.t_min, ray_pos, ray_dir);
+        var res = raycast_svo_8(0u, max(t.t_min, 0.0), tr_pos, ray_dir);
+        res.hit_pos *= 256.0;
+        return res;
     }
 }
 
@@ -168,16 +191,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     ))).xyz;
 
     // let res = raycast_voxels(cam.pos, dir, 2000);
-    let res = raycast_svo(cam.pos / 256.0, dir);
+    let res = raycast_svo(cam.pos, dir);
 
-    if res.hit {
-        // let normal = cube_face_normal(res.hit_voxel, res.hit_pos);
+    if res.hit != 0u {
+        let hit_voxel = vec3i(floor(res.hit_pos + dir * 0.01));
+        let normal = cube_face_normal(hit_voxel, res.hit_pos);
         // let palette_index = sample_svo(res.hit_voxel) - 1u;
-        // let albedo = palette[palette_index];
+        let albedo = palette[res.hit - 1u];
         // let albedo = vec4f(1.0);
-        // return shade(albedo, cam.pos, res.hit_pos, normal);
+        return shade(albedo, cam.pos, res.hit_pos, normal);
         // return res.col;
-        return vec4f(res.hit_pos, 1.0);
+        // return vec4f(res.hit_pos, 1.0);
     } else {
         return vec4f(0.0, 0.0, 0.0, 1.0);
         // return palette[0];
