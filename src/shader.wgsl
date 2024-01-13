@@ -217,13 +217,14 @@ fn raycast_svo_impl(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
 
             // octant is solid, time to "recurse"
             if next_ptr != 0u {
-                if svo_depth == 5u { // found a leaf
+                if svo_depth == 1u { // found a leaf
                     let pos = ray_pos + t * ray_dir;
                     return CastResult(next_ptr, pos);
                 }
                 else { // recurse, push to stack
                     octant_min = octant_min + octant_pos * (1 << svo_depth);
                     svo_depth -= 1u;
+                    svo_ptr_stack[svo_depth] = next_ptr;
                     let pos = ray_pos + t * ray_dir;
                     ipos = vec3i(floor(pos + small_step));
                     dt = (vec3f(ipos / (1 << svo_depth)) - pos * SVO_INV_DIMS[svo_depth] + ray_stepsign) * side_dt;
@@ -291,18 +292,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let res = raycast_svo(cam.pos, dir);
 
     if res.hit != 0u {
-        // let hit_voxel = vec3i(floor(res.hit_pos + dir * 0.01));
-        // let normal = cube_face_normal(hit_voxel, res.hit_pos);
-        // let palette_index = sample_svo(res.hit_voxel) - 1u;
-        // let albedo = palette[res.hit - 1u];
-        // let albedo = vec4f(1.0);
-        // return shade(albedo, cam.pos, res.hit_pos, normal);
-        // return res.col;
-        // return vec4f(res.hit_pos, 1.0);
-        return vec4f(res.hit_pos / 256.0, 1.0);
+        let hit_voxel = vec3i(floor(res.hit_pos + dir * 0.01));
+        let normal = cube_face_normal(hit_voxel, res.hit_pos);
+        let albedo = palette[res.hit - 1u];
+        return shade(albedo, cam.pos, res.hit_pos, normal);
     } else {
-        // return vec4f(res.hit_pos / 512.0, 1.0);
         return vec4f(0.0, 0.0, 0.0, 1.0);
-        // return palette[0];
     }
 }
