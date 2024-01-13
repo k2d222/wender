@@ -2414,15 +2414,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wgsl_preproc"
-version = "0.1.0"
-dependencies = [
- "itertools",
- "naga",
- "regex",
-]
-
-[[package]]
 name = "wide"
 version = "0.7.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"

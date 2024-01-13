@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use nalgebra_glm as glm;
 use ndarray::{s, Array3, ArrayView3, Axis, Zip};
 use rayon::prelude::{
@@ -33,17 +35,19 @@ impl SvoNode {
 impl Voxels {
     pub fn new() -> Self {
         let asset =
-            dot_vox::load("assets/realistic_terrain.vox").expect("failed to load magicvoxel asset");
+            dot_vox::load("assets/christmas_scene.vox").expect("failed to load magicvoxel asset");
         let model = asset
             .models
             .get(0)
             .expect("expected 1 model in the asset file");
 
-        let dim = (
-            model.size.x as usize,
-            model.size.y as usize,
-            model.size.z as usize,
-        );
+        let max_dim = model.size.x.max(model.size.y).max(model.size.z);
+        let pow2 = *[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+            .iter()
+            .find(|x| **x >= max_dim)
+            .expect("unsupported model dimensions") as usize;
+
+        let dim = (pow2, pow2, pow2);
         println!("dim: {dim:?}");
 
         let mut voxels = Array3::zeros(dim);
@@ -86,8 +90,8 @@ impl Voxels {
             .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
         let mut l6 = Zip::from(l5.exact_chunks((2, 2, 2)))
             .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
-        let mut l7 = Zip::from(l6.exact_chunks((2, 2, 2)))
-            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
+        // let mut l7 = Zip::from(l6.exact_chunks((2, 2, 2)))
+        //     .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
 
         let mut ptr = 0u32;
 
@@ -98,7 +102,7 @@ impl Voxels {
             });
         };
 
-        update_indices(&mut l7);
+        // update_indices(&mut l7);
         update_indices(&mut l6);
         update_indices(&mut l5);
         update_indices(&mut l4);
@@ -129,7 +133,7 @@ impl Voxels {
                 });
         };
 
-        build_svo(&l7);
+        // build_svo(&l7);
         build_svo(&l6);
         build_svo(&l5);
         build_svo(&l4);
@@ -138,36 +142,34 @@ impl Voxels {
         build_svo(&l1);
         build_svo(voxels);
 
-        println!("{}", vec.len());
+        // vec
 
-        vec
-
-        // vec![
-        //     SvoNode {
-        //         octants: [1, 0, 0, 1, 0, 1, 1, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [2, 0, 0, 2, 0, 2, 2, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [3, 0, 0, 3, 0, 3, 3, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [4, 0, 0, 4, 0, 4, 4, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [5, 0, 0, 5, 0, 5, 5, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [6, 0, 0, 6, 0, 6, 6, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [7, 0, 0, 7, 0, 7, 7, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [1, 1, 1, 1, 1, 1, 1, 1],
-        //     },
-        // ]
+        vec![
+            SvoNode {
+                octants: [1, 0, 0, 1, 0, 1, 1, 0],
+            },
+            SvoNode {
+                octants: [2, 0, 0, 2, 0, 2, 2, 0],
+            },
+            SvoNode {
+                octants: [3, 0, 0, 3, 0, 3, 3, 0],
+            },
+            SvoNode {
+                octants: [4, 0, 0, 4, 0, 4, 4, 0],
+            },
+            SvoNode {
+                octants: [5, 0, 0, 5, 0, 5, 5, 0],
+            },
+            SvoNode {
+                octants: [6, 0, 0, 6, 0, 6, 6, 0],
+            },
+            SvoNode {
+                octants: [7, 0, 0, 7, 0, 7, 7, 0],
+            },
+            SvoNode {
+                octants: [1, 1, 1, 1, 1, 1, 1, 1],
+            },
+        ]
     }
 
     pub fn voxels_bytes(&self) -> &[u8] {

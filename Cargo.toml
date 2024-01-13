@@ -1,4 +1,3 @@
-workspace = { members = ["wgsl_preproc"] }
 [package]
 name = "wender"
 version = "0.1.0"
