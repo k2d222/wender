@@ -245,7 +245,7 @@ impl State {
                 egui_plot::Plot::new("FPS")
                     .height(100.0)
                     .include_y(0)
-                    .include_y(100)
+                    .include_y(70)
                     .include_x(0)
                     .include_x(100)
                     .auto_bounds(false.into())

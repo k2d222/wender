@@ -76,9 +76,17 @@ fn compute_dotvox_model(asset: &DotVoxData) -> Array3<u32> {
         };
     }
 
-    let root = &asset.scenes[0];
-    let mut models = Vec::new();
-    process_node(&mut models, &asset, root, glm::vec3(0, 0, 0));
+    let models = if let Some(root) = asset.scenes.get(0) {
+        let mut models = Vec::new();
+        process_node(&mut models, &asset, root, glm::vec3(0, 0, 0));
+        models
+    } else {
+        asset
+            .models
+            .iter()
+            .map(|m| (m, glm::vec3(0, 0, 0)))
+            .collect()
+    };
 
     let dim = models
         .iter()
@@ -112,7 +120,7 @@ fn compute_dotvox_model(asset: &DotVoxData) -> Array3<u32> {
 impl Voxels {
     pub fn new() -> Self {
         let asset =
-            dot_vox::load("assets/phantom_mansion.vox").expect("failed to load magicvoxel asset");
+            dot_vox::load("assets/christmas_scene.vox").expect("failed to load magicvoxel asset");
 
         let voxels = compute_dotvox_model(&asset);
 
@@ -203,43 +211,7 @@ impl Voxels {
                 octants: [1, 0, 0, 1, 0, 1, 1, 0],
             },
             SvoNode {
-                octants: [2, 0, 0, 2, 0, 2, 2, 0],
-            },
-            SvoNode {
-                octants: [3, 0, 0, 3, 0, 3, 3, 0],
-            },
-            SvoNode {
-                octants: [4, 0, 0, 4, 0, 4, 4, 0],
-            },
-            SvoNode {
-                octants: [5, 0, 0, 5, 0, 5, 5, 0],
-            },
-            SvoNode {
-                octants: [6, 0, 0, 6, 0, 6, 6, 0],
-            },
-            SvoNode {
-                octants: [7, 0, 0, 7, 0, 7, 7, 0],
-            },
-            SvoNode {
-                octants: [8, 0, 0, 8, 0, 8, 8, 0],
-            },
-            SvoNode {
-                octants: [9, 0, 0, 9, 0, 9, 9, 0],
-            },
-            SvoNode {
-                octants: [10, 0, 0, 10, 0, 10, 10, 0],
-            },
-            SvoNode {
-                octants: [11, 0, 0, 11, 0, 11, 11, 0],
-            },
-            SvoNode {
-                octants: [12, 0, 0, 12, 0, 12, 12, 0],
-            },
-            SvoNode {
-                octants: [13, 0, 0, 13, 0, 13, 13, 0],
-            },
-            SvoNode {
-                octants: [1, 1, 1, 1, 1, 1, 1, 1],
+                octants: [1, 0, 0, 1, 0, 1, 1, 0],
             },
         ]
     }
