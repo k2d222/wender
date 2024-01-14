@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use dot_vox::{Dict, DotVoxData, Frame, Model, SceneNode, ShapeModel};
 use nalgebra_glm as glm;
 use ndarray::{s, Array3, ArrayView3, Axis, Zip};
 use rayon::prelude::{
@@ -32,28 +33,88 @@ impl SvoNode {
     }
 }
 
+fn compute_dotvox_model(asset: &DotVoxData) -> Array3<u32> {
+    fn process_node<'a>(
+        res: &mut Vec<(&'a Model, glm::IVec3)>,
+        asset: &'a DotVoxData,
+        node: &SceneNode,
+        mut tr: glm::IVec3,
+    ) {
+        match node {
+            dot_vox::SceneNode::Transform {
+                attributes: _,
+                frames,
+                child,
+                layer_id,
+            } => {
+                let frame = &frames[0];
+                if let Some(pos) = frame.position() {
+                    tr += glm::vec3(pos.x, pos.y, pos.z);
+                }
+                let child = &asset.scenes[*child as usize];
+                process_node(res, asset, child, tr);
+            }
+            dot_vox::SceneNode::Group {
+                attributes: _,
+                children,
+            } => {
+                for child in children {
+                    let child = &asset.scenes[*child as usize];
+                    process_node(res, asset, child, tr.clone());
+                }
+            }
+            dot_vox::SceneNode::Shape {
+                attributes: _,
+                models,
+            } => {
+                for model in models {
+                    let index = model.model_id as usize;
+                    let model = &asset.models[index];
+                    res.push((model, tr.clone()));
+                }
+            }
+        };
+    }
+
+    let root = &asset.scenes[0];
+    let mut models = Vec::new();
+    process_node(&mut models, &asset, root, glm::vec3(0, 0, 0));
+
+    let dim = models
+        .iter()
+        .map(|(m, tr)| {
+            let size = glm::vec3(m.size.x as i32, m.size.y as i32, m.size.z as i32);
+            size + tr
+        })
+        .reduce(|v1, v2| glm::max2(&v1, &v2))
+        .unwrap();
+
+    // round up to pow of 2
+    let max_dim = 2 << dim.max().ilog2();
+
+    println!("dim: {dim:?} ({max_dim})");
+
+    let mut voxels = Array3::zeros((max_dim, max_dim, max_dim));
+
+    models.iter().for_each(|(m, tr)| {
+        m.voxels.iter().for_each(|v| {
+            voxels[(
+                (v.x as i32 + tr.x) as usize,
+                (v.z as i32 + tr.z) as usize,
+                (v.y as i32 + tr.y) as usize,
+            )] = v.i as u32 + 1;
+        })
+    });
+
+    voxels
+}
+
 impl Voxels {
     pub fn new() -> Self {
         let asset =
-            dot_vox::load("assets/christmas_scene.vox").expect("failed to load magicvoxel asset");
-        let model = asset
-            .models
-            .get(0)
-            .expect("expected 1 model in the asset file");
+            dot_vox::load("assets/phantom_mansion.vox").expect("failed to load magicvoxel asset");
 
-        let max_dim = model.size.x.max(model.size.y).max(model.size.z);
-        let pow2 = *[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
-            .iter()
-            .find(|x| **x >= max_dim)
-            .expect("unsupported model dimensions") as usize;
-
-        let dim = (pow2, pow2, pow2);
-        println!("dim: {dim:?}");
-
-        let mut voxels = Array3::zeros(dim);
-        model.voxels.iter().for_each(|v| {
-            voxels[(v.x as usize, v.z as usize, v.y as usize)] = v.i as u32 + 1;
-        });
+        let voxels = compute_dotvox_model(&asset);
 
         let palette = asset
             .palette
@@ -68,7 +129,8 @@ impl Voxels {
             })
             .collect();
 
-        let svo = Self::build_svo(&voxels);
+        // let svo = Self::build_svo(&voxels);
+        let svo = Self::fractal_svo();
 
         Self {
             voxels,
@@ -78,41 +140,37 @@ impl Voxels {
     }
 
     pub fn build_svo(voxels: &Array3<u32>) -> Vec<SvoNode> {
-        let mut l1 = Zip::from(voxels.exact_chunks((2, 2, 2)))
-            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
-        let mut l2 = Zip::from(l1.exact_chunks((2, 2, 2)))
-            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
-        let mut l3 = Zip::from(l2.exact_chunks((2, 2, 2)))
-            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
-        let mut l4 = Zip::from(l3.exact_chunks((2, 2, 2)))
-            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
-        let mut l5 = Zip::from(l4.exact_chunks((2, 2, 2)))
-            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
-        let mut l6 = Zip::from(l5.exact_chunks((2, 2, 2)))
-            .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
-        // let mut l7 = Zip::from(l6.exact_chunks((2, 2, 2)))
-        //     .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
+        let svo_depth = voxels.dim().0.ilog2() as usize;
+        println!("depth: {svo_depth}");
+
+        let mut levels = vec![voxels.clone()];
+
+        // build the sparse layers (filled octant = 1, empty = 0)
+        for n in 1..svo_depth {
+            let prev_level = &levels[n - 1];
+            let level = Zip::from(prev_level.exact_chunks((2, 2, 2)))
+                .par_map_collect(|o| o.iter().any(|v| *v != 0) as u32);
+            levels.push(level);
+        }
+
+        println!("computed layers");
 
         let mut ptr = 0u32;
 
-        let mut update_indices = |l: &mut Array3<u32>| {
+        // update octants pointers
+        levels.iter_mut().rev().take(svo_depth - 1).for_each(|l| {
             l.iter_mut().filter(|o| **o != 0).for_each(|o| {
                 ptr += 1;
                 *o = ptr;
             });
-        };
+        });
 
-        // update_indices(&mut l7);
-        update_indices(&mut l6);
-        update_indices(&mut l5);
-        update_indices(&mut l4);
-        update_indices(&mut l3);
-        update_indices(&mut l2);
-        update_indices(&mut l1);
+        println!("computed pointers");
 
         let mut vec = Vec::new();
 
-        let mut build_svo = |l: &Array3<u32>| {
+        // build up the vec of nodes
+        levels.iter().rev().for_each(|l| {
             l.exact_chunks((2, 2, 2))
                 .into_iter()
                 .filter(|o| o.iter().any(|o| *o != 0))
@@ -131,49 +189,59 @@ impl Voxels {
                     };
                     vec.push(svo);
                 });
-        };
+        });
 
-        // build_svo(&l7);
-        build_svo(&l6);
-        build_svo(&l5);
-        build_svo(&l4);
-        build_svo(&l3);
-        build_svo(&l2);
-        build_svo(&l1);
-        build_svo(voxels);
+        println!("computed nodes");
 
         vec
-
-        // vec![
-        //     SvoNode {
-        //         octants: [1, 0, 0, 1, 0, 1, 1, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [2, 0, 0, 2, 0, 2, 2, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [3, 0, 0, 3, 0, 3, 3, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [4, 0, 0, 4, 0, 4, 4, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [5, 0, 0, 5, 0, 5, 5, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [6, 0, 0, 6, 0, 6, 6, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [7, 0, 0, 7, 0, 7, 7, 0],
-        //     },
-        //     SvoNode {
-        //         octants: [1, 1, 1, 1, 1, 1, 1, 1],
-        //     },
-        // ]
     }
 
-    pub fn voxels_bytes(&self) -> &[u8] {
-        bytemuck::cast_slice(self.voxels.as_slice().unwrap())
+    #[allow(unused)]
+    fn fractal_svo() -> Vec<SvoNode> {
+        vec![
+            SvoNode {
+                octants: [1, 0, 0, 1, 0, 1, 1, 0],
+            },
+            SvoNode {
+                octants: [2, 0, 0, 2, 0, 2, 2, 0],
+            },
+            SvoNode {
+                octants: [3, 0, 0, 3, 0, 3, 3, 0],
+            },
+            SvoNode {
+                octants: [4, 0, 0, 4, 0, 4, 4, 0],
+            },
+            SvoNode {
+                octants: [5, 0, 0, 5, 0, 5, 5, 0],
+            },
+            SvoNode {
+                octants: [6, 0, 0, 6, 0, 6, 6, 0],
+            },
+            SvoNode {
+                octants: [7, 0, 0, 7, 0, 7, 7, 0],
+            },
+            SvoNode {
+                octants: [8, 0, 0, 8, 0, 8, 8, 0],
+            },
+            SvoNode {
+                octants: [9, 0, 0, 9, 0, 9, 9, 0],
+            },
+            SvoNode {
+                octants: [10, 0, 0, 10, 0, 10, 10, 0],
+            },
+            SvoNode {
+                octants: [11, 0, 0, 11, 0, 11, 11, 0],
+            },
+            SvoNode {
+                octants: [12, 0, 0, 12, 0, 12, 12, 0],
+            },
+            SvoNode {
+                octants: [13, 0, 0, 13, 0, 13, 13, 0],
+            },
+            SvoNode {
+                octants: [1, 1, 1, 1, 1, 1, 1, 1],
+            },
+        ]
     }
 
     pub fn svo_bytes(&self) -> &[u8] {
