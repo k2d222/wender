@@ -261,7 +261,7 @@ impl State {
                         ui.line(egui_plot::Line::new(points));
                     });
                 ui.label(format!("fps: {}", avg_fps));
-                let _ = ui.button("world");
+                ui.label(format!("cam: {:?}", self.camera.uniform.pos));
             });
         });
 

@@ -113,7 +113,7 @@ fn back_intersection(ray_pos: vec3f, ray_dir: vec3f) -> f32 {
     return t_max;
 }
 
-const SVO_DEPTH = 6u;
+const SVO_DEPTH = 13u;
 var<private> SVO_INV_DIMS: array<f32, 13> = array(1.0, 1.0/2.0, 1.0/4.0, 1.0/8.0, 1.0/16.0, 1.0/32.0, 1.0/64.0, 1.0/128.0, 1.0/256.0, 1.0/512.0, 1.0/1024.0, 1.0/2048.0, 1.0/4096.0);
 const NO_HIT = CastResult(0u, vec3f(0.0), vec3i(0));
 

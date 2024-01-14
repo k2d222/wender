@@ -163,7 +163,7 @@ impl Voxels {
 
         println!("computed layers");
 
-        let mut ptr = 0u32;
+        let mut ptr = 7u32;
 
         // update octants pointers
         levels.iter_mut().rev().take(svo_depth - 1).for_each(|l| {
@@ -175,7 +175,29 @@ impl Voxels {
 
         println!("computed pointers");
 
-        let mut vec = Vec::new();
+        let mut vec = vec![
+            SvoNode {
+                octants: [1, 1, 1, 1, 1, 1, 1, 1],
+            },
+            SvoNode {
+                octants: [2, 2, 2, 2, 2, 2, 2, 2],
+            },
+            SvoNode {
+                octants: [3, 3, 3, 3, 3, 3, 3, 3],
+            },
+            SvoNode {
+                octants: [4, 4, 4, 4, 4, 4, 4, 4],
+            },
+            SvoNode {
+                octants: [5, 5, 5, 5, 5, 5, 5, 5],
+            },
+            SvoNode {
+                octants: [6, 6, 6, 6, 6, 6, 6, 6],
+            },
+            SvoNode {
+                octants: [7, 7, 7, 7, 7, 7, 7, 7],
+            },
+        ];
 
         // build up the vec of nodes
         levels.iter().rev().for_each(|l| {

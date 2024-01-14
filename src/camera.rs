@@ -38,7 +38,7 @@ impl Camera {
     pub fn new() -> Self {
         Self {
             uniform: CameraUniform {
-                pos: glm::Vec3::new(0.0, 20.0, -5.0),
+                pos: glm::Vec3::new(7000.0, 7000.0, -4000.0),
                 fov_y: 70.0 / 180.0 * glm::pi::<f32>(),
                 aspect: 1.0,
                 _pad: Default::default(),
