@@ -8,9 +8,6 @@ struct Camera {
 @group(0) @binding(0)
 var<uniform> cam: Camera;
 
-const DIM = vec3(256, 256, 256);
-const SVO_DEPTH = 8;
-
 struct SvoNode {
     octants: array<u32, 8>,
 }
@@ -68,6 +65,7 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
 struct CastResult {
     hit: u32,
     hit_pos: vec3f,
+    hit_voxel: vec3i,
 }
 
 struct Intersect {
@@ -115,63 +113,9 @@ fn back_intersection(ray_pos: vec3f, ray_dir: vec3f) -> f32 {
     return t_max;
 }
 
-// fn raycast_svo_0(svo_index: u32, t: f32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-//     return CastResult(svo_index, ray_pos + t * ray_dir);
-// }
-
-// fn raycast_svo_tmp(svo_index: u32, _t: f32, ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-//     var t = _t;
-//     var node = svo[svo_index];
-//     let pos = ray_pos + t * ray_dir;
-
-//     let octant = step(vec3f(0.5), pos); // vec of 1/0 identifying octants, from (0,0,0) to (1,1,1)
-//     let octant_index = u32(dot(octant, vec3f(4.0, 2.0, 1.0))); // octant to index: x*4 + y*2 + z = 0b(xyz)
-//     let next_index = node.octants[octant_index];
-
-//     if next_index != 0u { // octant non-empty
-//         let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-//         var recurse = raycast_svo(next_index, t * 2.0, tr_pos, ray_dir);
-
-//         if recurse.hit != 0u { // ray hit something recusively
-//             recurse.hit_pos = recurse.hit_pos * 0.5 + octant * 0.5;
-//             return recurse;
-//         }
-//     }
-
-//     let side_dt = 1.0 / ray_dir; // time to traverse 1 voxel in x,y,z axes
-//     var next_side_dt = (step(vec3f(0.0), ray_dir) - fract(pos)) * side_dt; // time to reach the next voxel boundary in each x,y,z
-//     let ray_sign = sign(ray_dir);
-//     let ray_incr = vec3i(ray_sign);
-
-//     // test all (max. 3) remaining octants
-//     for (var i = 0; i < 3; i++) {
-//         let octant = step(vec3f(0.5), pos); // vec of 1/0 identifying octants, from (0,0,0) to (1,1,1)
-//         let octant_index = u32(dot(octant, vec3f(4.0, 2.0, 1.0))); // octant to index: x*4 + y*2 + z = 0b(xyz)
-//         let next_index = node.octants[octant_index];
-
-//         if next_index != 0u { // octant non-empty
-//             let tr_pos = (ray_pos - octant * 0.5) * 2.0;
-//             var recurse = raycast_svo(next_index, t * 2.0, tr_pos, ray_dir);
-
-//             if recurse.hit != 0u { // ray hit something recusively
-//                 recurse.hit_pos = recurse.hit_pos * 0.5 + octant * 0.5;
-//                 return recurse;
-//             }
-//         }
-
-//         // next octant
-//         let mask = next_side_dt.xyz <= min(next_side_dt.yzx, next_side_dt.zxy); // which boundary axis is the closest
-//         t = min(min(next_side_dt.x, next_side_dt.y), next_side_dt.z);
-//         next_side_dt += vec3f(mask) * side_dt * ray_sign; // increment the next boundary for the selected axis by 1 voxel.
-//     }
-
-//     // ray left the octants
-//     return CastResult(0u, vec3f(0.0));
-// }
-
-// const SVO_DIMS = array(256, 128, 64, 32, 16, 8, 4, 2);
-// var<private> SVO_OCTANT_W: array<i32, 9> = array(1, 2, 4, 8, 16, 32, 64, 128, 256);
-var<private> SVO_INV_DIMS: array<f32, 9> = array(1.0, 1.0/2.0, 1.0/4.0, 1.0/8.0, 1.0/16.0, 1.0/32.0, 1.0/64.0, 1.0/128.0, 1.0/256.0);
+const SVO_DEPTH = 6u;
+var<private> SVO_INV_DIMS: array<f32, 13> = array(1.0, 1.0/2.0, 1.0/4.0, 1.0/8.0, 1.0/16.0, 1.0/32.0, 1.0/64.0, 1.0/128.0, 1.0/256.0, 1.0/512.0, 1.0/1024.0, 1.0/2048.0, 1.0/4096.0);
+const NO_HIT = CastResult(0u, vec3f(0.0), vec3i(0));
 
 fn raycast_svo_impl(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
     let side_dt = 1.0 / ray_dir; // time to traverse 1 voxel in each x,y,z
@@ -182,22 +126,20 @@ fn raycast_svo_impl(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
     let small_step = ray_dir * eps;
 
     var t = 0.0;
-    var svo_depth = 7u;
+    var svo_depth = SVO_DEPTH;
 
     let pos = ray_pos + t * ray_dir;
     var ipos = vec3i(floor(pos + small_step));
     var dt = (vec3f(ipos / (1 << svo_depth)) - pos * SVO_INV_DIMS[svo_depth] + ray_stepsign) * side_dt;
-    // var dt = (vec3f(ipos / (1 << svo_depth)) + 1.0 - (pos * SVO_INV_DIMS[svo_depth])) * side_dt; // time to reach the next octant boundary in each x,y,z. time is in octant units.
-    // var next_side_t = (ray_stepsign - fract((ray_pos + t * ray_dir + small_step) * SVO_INV_DIMS[svo_depth])) * side_dt; // time to reach the next octant boundary in each x,y,z
 
-    var svo_ptr_stack = array(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+    var svo_ptr_stack = array<u32, (SVO_DEPTH + 1u)>(); // initialized with 0u
     var octant_min = vec3i(0); // min corner of the current octant
 
     for (var i = 0; i < 1000; i++) {
         // outside octants, must pop the stack or finish raycast
         if any((ipos - octant_min) < vec3i(0) | (ipos - octant_min) >= vec3i(1 << (svo_depth + 1u))) {
-            if svo_depth == 7u { // completely out
-                return CastResult(0u, vec3f(0.0));
+            if svo_depth == SVO_DEPTH { // completely out
+                return NO_HIT;
             }
             else { // "pop" the recursion stack
                 svo_depth += 1u;
@@ -217,11 +159,11 @@ fn raycast_svo_impl(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
 
             // octant is solid, time to "recurse"
             if next_ptr != 0u {
-                if svo_depth == 1u { // found a leaf
+                if svo_depth == 0u { // found a leaf
                     let pos = ray_pos + t * ray_dir;
-                    return CastResult(next_ptr, pos);
+                    return CastResult(next_ptr, pos, ipos);
                 }
-                else { // recurse, push to stack
+                else { // recurse, push current node to stack
                     octant_min = octant_min + octant_pos * (1 << svo_depth);
                     svo_depth -= 1u;
                     svo_ptr_stack[svo_depth] = next_ptr;
@@ -239,36 +181,28 @@ fn raycast_svo_impl(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
                 t += min_t * f32(1 << svo_depth);
                 ipos += incr * (1 << svo_depth); // advance by 1 octant along the selected axis
                 dt += vec3f(mask) * side_dt * ray_sign - min_t; // increment the next boundary for the selected axis by 1 octant.
-
-                // t += 1.0;
-                // ipos = vec3i(floor(ray_pos + t * ray_dir + small_step));
             }
         }
     }
 
     // end of iteration
-    return CastResult(0u, vec3f(5.0));
+    return NO_HIT;
 }
 
 fn raycast_svo(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    let tr_pos = ray_pos / 256.0;
+    let svo_width = f32(2 << SVO_DEPTH);
+    let tr_pos = ray_pos / svo_width;
     var t = intersection(tr_pos, ray_dir);
 
     // no hit
     if t.t_min > t.t_max || t.t_max < 0.0 {
-        return CastResult(0u, vec3f(0.0));
+        return NO_HIT;
     }
 
     else {
-        var res = raycast_svo_impl(ray_pos + max(t.t_min, 0.0) * 256.0 * ray_dir, ray_dir);
-        // var res = raycast_svo_7(0u, max(t.t_min, 0.0), tr_pos, ray_dir);
-        // res.hit_pos *= 256.0;
+        var res = raycast_svo_impl(ray_pos + max(t.t_min, 0.0) * svo_width * ray_dir, ray_dir);
         return res;
     }
-}
-
-fn sample_svo_leaf(ipos: vec3i) -> u32 {
-    return 1u;
 }
 
 // is pos is on a cube surface, returns the normal of the corresponding cube face.
@@ -292,8 +226,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let res = raycast_svo(cam.pos, dir);
 
     if res.hit != 0u {
-        let hit_voxel = vec3i(floor(res.hit_pos + dir * 0.01));
-        let normal = cube_face_normal(hit_voxel, res.hit_pos);
+        let normal = cube_face_normal(res.hit_voxel, res.hit_pos);
         let albedo = palette[res.hit - 1u];
         return shade(albedo, cam.pos, res.hit_pos, normal);
     } else {
