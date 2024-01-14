@@ -23,7 +23,7 @@ pub struct Camera {
 }
 
 pub struct Controller {
-    speed: f32,
+    pub speed: f32,
     sensitivity: f64,
     is_forward: bool,
     is_back: bool,

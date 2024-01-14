@@ -430,6 +430,16 @@ pub async fn run() {
                             WindowEvent::Resized(physical_size) => {
                                 state.resize(*physical_size);
                             }
+                            WindowEvent::MouseWheel {
+                                device_id,
+                                delta,
+                                phase,
+                            } => match delta {
+                                MouseScrollDelta::LineDelta(_, y) => {
+                                    state.controller.speed *= 2f32.powf(*y);
+                                }
+                                MouseScrollDelta::PixelDelta(_) => {}
+                            },
                             WindowEvent::MouseInput {
                                 state: button_state,
                                 button,
