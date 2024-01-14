@@ -1,5 +1,7 @@
 use std::time::{Duration, Instant};
 
+use itertools::Itertools;
+
 pub struct FpsCounter {
     history: [Instant; Self::HISTORY_SIZE],
     ptr: usize,
@@ -15,6 +17,10 @@ impl FpsCounter {
         }
     }
 
+    pub fn len(&self) -> usize {
+        Self::HISTORY_SIZE
+    }
+
     pub fn tick(&mut self) {
         self.history[self.ptr] = Instant::now();
         self.ptr += 1;
@@ -24,9 +30,11 @@ impl FpsCounter {
     }
 
     pub fn durations(&self) -> Vec<Duration> {
-        self.history
-            .windows(2)
-            .map(|s| s[1].duration_since(s[0]))
+        self.history[self.ptr..]
+            .iter()
+            .chain(self.history[0..self.ptr].iter())
+            .tuple_windows()
+            .map(|(s1, s2)| s2.duration_since(*s1))
             .collect()
     }
 }

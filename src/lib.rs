@@ -4,7 +4,7 @@ mod ui;
 mod voxels;
 mod wgpu_util;
 
-use std::iter;
+use std::{iter, time::Duration};
 
 use ui::FpsCounter;
 use wgpu::util::DeviceExt;
@@ -241,24 +241,26 @@ impl State {
         self.fps.tick();
 
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
+            let fps = self.fps.durations();
+            let avg_fps = 10000 / fps.iter().rev().take(10).sum::<Duration>().as_millis();
+
             egui::Window::new("Hello").show(&ctx, |ui| {
                 egui_plot::Plot::new("FPS")
                     .height(100.0)
                     .include_y(0)
                     .include_y(70)
                     .include_x(0)
-                    .include_x(100)
+                    .include_x(self.fps.len() as f64)
                     .auto_bounds(false.into())
                     .show(ui, |ui| {
-                        let durations = self.fps.durations();
-                        let points = durations
+                        let points = fps
                             .iter()
                             .enumerate()
                             .map(|(n, d)| [n as f64, 1000.0 / d.as_millis() as f64])
                             .collect::<egui_plot::PlotPoints>();
                         ui.line(egui_plot::Line::new(points));
                     });
-                ui.label("hello");
+                ui.label(format!("fps: {}", avg_fps));
                 let _ = ui.button("world");
             });
         });

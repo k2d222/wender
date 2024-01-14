@@ -137,8 +137,8 @@ impl Voxels {
             })
             .collect();
 
-        // let svo = Self::build_svo(&voxels);
-        let svo = Self::fractal_svo();
+        let svo = Self::build_svo(&voxels);
+        // let svo = Self::fractal_svo();
 
         Self {
             voxels,
