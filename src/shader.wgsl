@@ -113,7 +113,7 @@ fn back_intersection(ray_pos: vec3f, ray_dir: vec3f) -> f32 {
     return t_max;
 }
 
-const SVO_DEPTH = 2u;
+const SVO_DEPTH = 6u;
 var<private> SVO_INV_DIMS: array<f32, 21> = array(1.0, 1.0/2.0, 1.0/4.0, 1.0/8.0, 1.0/16.0, 1.0/32.0, 1.0/64.0, 1.0/128.0, 1.0/256.0, 1.0/512.0, 1.0/1024.0, 1.0/2048.0, 1.0/4096.0, 1.0/8192.0, 1.0/16384.0, 1.0/32768.0, 1.0/65536.0, 1.0/131072.0, 1.0/262144.0, 1.0/524288.0, 1.0/1048576.0);
 const NO_HIT = CastResult(0u, vec3f(0.0), vec3i(0));
 
@@ -145,7 +145,6 @@ fn raycast_svo_impl(ray_pos: vec3f, ray_dir: vec3f, t0: f32) -> CastResult {
         // outside octants, must pop the stack or finish raycast
         if t == vmin(node_end_t) {
             if svo_depth == SVO_DEPTH { // completely out
-                // return CastResult(0u, vec3f(0.0, 1.0, 0.0), vec3i(0));
                 return NO_HIT;
             }
             else { // "pop" the recursion stack
@@ -182,7 +181,6 @@ fn raycast_svo_impl(ray_pos: vec3f, ray_dir: vec3f, t0: f32) -> CastResult {
                     node_mid_t = node_end_t - octant_width * side_dt * ray_sign;
                     octant_end_t = mix(node_mid_t, node_end_t, step(node_mid_t, vec3f(t)));
                 }
-                // return CastResult(octant_ptr, ray_pos + t * ray_dir, vec3i(0));
             }
 
             // octant is empty, move to the next
@@ -235,17 +233,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         0.0,
     ))).xyz;
 
-    // let res = raycast_voxels(cam.pos, dir, 2000);
     let res = raycast_svo(cam.pos, dir);
 
     if res.hit != 0u {
-        // let normal = cube_face_normal(res.hit_voxel, res.hit_pos);
-        // let albedo = palette[res.hit - 1u];
-        // return shade(albedo, cam.pos, res.hit_pos, normal);
-        // return vec4f(1.0);
-        return vec4f(res.hit_pos / f32(2 << SVO_DEPTH), 1.0);
+        let normal = cube_face_normal(res.hit_voxel, res.hit_pos);
+        let albedo = palette[res.hit - 1u];
+        return shade(albedo, cam.pos, res.hit_pos, normal);
     } else {
-        // return vec4f(0.0, 0.0, 0.0, 1.0);
         return vec4f(res.hit_pos, 1.0);
     }
 }

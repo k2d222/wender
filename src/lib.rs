@@ -437,7 +437,7 @@ pub async fn run() {
                                 phase,
                             } => match delta {
                                 MouseScrollDelta::LineDelta(_, y) => {
-                                    state.controller.speed *= 2f32.powf(*y);
+                                    state.controller.speed *= 2f32.powf(-y);
                                 }
                                 MouseScrollDelta::PixelDelta(_) => {}
                             },
