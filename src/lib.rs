@@ -262,6 +262,7 @@ impl State {
                     });
                 ui.label(format!("fps: {}", avg_fps));
                 ui.label(format!("cam: {:?}", self.camera.uniform.pos));
+                ui.label(format!("speed: {}", self.controller.speed));
             });
         });
 

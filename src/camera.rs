@@ -38,13 +38,13 @@ impl Camera {
     pub fn new() -> Self {
         Self {
             uniform: CameraUniform {
-                pos: glm::Vec3::new(7000.0, 7000.0, -4000.0),
+                pos: glm::Vec3::new(-4.0, -4.0, -4.0),
                 fov_y: 70.0 / 180.0 * glm::pi::<f32>(),
                 aspect: 1.0,
                 _pad: Default::default(),
                 view_mat_inv: Default::default(),
             },
-            quat: glm::Quat::identity(),
+            quat: Default::default(),
         }
     }
 
@@ -56,7 +56,7 @@ impl Camera {
 impl Controller {
     pub fn new() -> Self {
         Self {
-            speed: 5.0,
+            speed: 0.1,
             sensitivity: 0.005,
             is_forward: false,
             is_back: false,
@@ -100,9 +100,16 @@ impl Controller {
     }
 
     pub fn update_camera(&mut self, cam: &mut Camera) {
+        {
+            let half_y = 45.0_f32.to_radians() * 0.5;
+            let half_x = -0.0_f32.to_radians() * 0.5;
+            cam.quat = glm::Quat::new(half_y.cos(), 0.0, half_y.sin(), 0.0)
+                * glm::Quat::new(half_x.cos(), half_x.sin(), 0.0, 0.0);
+        }
+
         let half_angle_x = (self.mouse_pos.1 * self.sensitivity * 0.5) as f32;
         let half_angle_y = (self.mouse_pos.0 * self.sensitivity * 0.5) as f32;
-        cam.quat = glm::Quat::new(half_angle_y.cos(), 0.0, half_angle_y.sin(), 0.0)
+        cam.quat *= glm::Quat::new(half_angle_y.cos(), 0.0, half_angle_y.sin(), 0.0)
             * glm::Quat::new(half_angle_x.cos(), half_angle_x.sin(), 0.0, 0.0);
 
         if self.is_forward {

@@ -137,8 +137,8 @@ impl Voxels {
             })
             .collect();
 
-        let svo = Self::build_svo(&voxels);
-        // let svo = Self::fractal_svo();
+        // let svo = Self::build_svo(&voxels);
+        let svo = Self::fractal_svo();
 
         Self {
             voxels,
@@ -163,7 +163,7 @@ impl Voxels {
 
         println!("computed layers");
 
-        let mut ptr = 7u32;
+        let mut ptr = 13u32;
 
         // update octants pointers
         levels.iter_mut().rev().take(svo_depth - 1).for_each(|l| {
@@ -196,6 +196,24 @@ impl Voxels {
             },
             SvoNode {
                 octants: [7, 7, 7, 7, 7, 7, 7, 7],
+            },
+            SvoNode {
+                octants: [8, 8, 8, 8, 8, 8, 8, 8],
+            },
+            SvoNode {
+                octants: [9, 9, 9, 9, 9, 9, 9, 9],
+            },
+            SvoNode {
+                octants: [10, 10, 10, 10, 10, 10, 10, 10],
+            },
+            SvoNode {
+                octants: [11, 11, 11, 11, 11, 11, 11, 11],
+            },
+            SvoNode {
+                octants: [12, 12, 12, 12, 12, 12, 12, 12],
+            },
+            SvoNode {
+                octants: [13, 13, 13, 13, 13, 13, 13, 13],
             },
         ];
 
