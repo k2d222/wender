@@ -163,7 +163,7 @@ impl Voxels {
 
         println!("computed layers");
 
-        let mut ptr = 0u32;
+        let mut ptr = 13u32;
 
         // update octants pointers
         levels.iter_mut().rev().take(svo_depth - 1).for_each(|l| {
@@ -176,45 +176,45 @@ impl Voxels {
         println!("computed pointers");
 
         let mut vec = vec![
-            // SvoNode {
-            //     octants: [1, 1, 1, 1, 1, 1, 1, 1],
-            // },
-            // SvoNode {
-            //     octants: [2, 2, 2, 2, 2, 2, 2, 2],
-            // },
-            // SvoNode {
-            //     octants: [3, 3, 3, 3, 3, 3, 3, 3],
-            // },
-            // SvoNode {
-            //     octants: [4, 4, 4, 4, 4, 4, 4, 4],
-            // },
-            // SvoNode {
-            //     octants: [5, 5, 5, 5, 5, 5, 5, 5],
-            // },
-            // SvoNode {
-            //     octants: [6, 6, 6, 6, 6, 6, 6, 6],
-            // },
-            // SvoNode {
-            //     octants: [7, 7, 7, 7, 7, 7, 7, 7],
-            // },
-            // SvoNode {
-            //     octants: [8, 8, 8, 8, 8, 8, 8, 8],
-            // },
-            // SvoNode {
-            //     octants: [9, 9, 9, 9, 9, 9, 9, 9],
-            // },
-            // SvoNode {
-            //     octants: [10, 10, 10, 10, 10, 10, 10, 10],
-            // },
-            // SvoNode {
-            //     octants: [11, 11, 11, 11, 11, 11, 11, 11],
-            // },
-            // SvoNode {
-            //     octants: [12, 12, 12, 12, 12, 12, 12, 12],
-            // },
-            // SvoNode {
-            //     octants: [13, 13, 13, 13, 13, 13, 13, 13],
-            // },
+            SvoNode {
+                octants: [1, 1, 1, 1, 1, 1, 1, 1],
+            },
+            SvoNode {
+                octants: [2, 2, 2, 2, 2, 2, 2, 2],
+            },
+            SvoNode {
+                octants: [3, 3, 3, 3, 3, 3, 3, 3],
+            },
+            SvoNode {
+                octants: [4, 4, 4, 4, 4, 4, 4, 4],
+            },
+            SvoNode {
+                octants: [5, 5, 5, 5, 5, 5, 5, 5],
+            },
+            SvoNode {
+                octants: [6, 6, 6, 6, 6, 6, 6, 6],
+            },
+            SvoNode {
+                octants: [7, 7, 7, 7, 7, 7, 7, 7],
+            },
+            SvoNode {
+                octants: [8, 8, 8, 8, 8, 8, 8, 8],
+            },
+            SvoNode {
+                octants: [9, 9, 9, 9, 9, 9, 9, 9],
+            },
+            SvoNode {
+                octants: [10, 10, 10, 10, 10, 10, 10, 10],
+            },
+            SvoNode {
+                octants: [11, 11, 11, 11, 11, 11, 11, 11],
+            },
+            SvoNode {
+                octants: [12, 12, 12, 12, 12, 12, 12, 12],
+            },
+            SvoNode {
+                octants: [13, 13, 13, 13, 13, 13, 13, 13],
+            },
         ];
 
         // build up the vec of nodes
