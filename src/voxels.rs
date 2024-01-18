@@ -2,17 +2,20 @@ use std::ops::Deref;
 
 use dot_vox::{Dict, DotVoxData, Frame, Model, SceneNode, ShapeModel};
 use nalgebra_glm as glm;
-use ndarray::{s, Array3, ArrayView3, Axis, Zip};
+use ndarray::{concatenate, s, Array3, ArrayView3, Axis, Zip};
 use rayon::prelude::{
     IndexedParallelIterator, IntoParallelIterator, ParallelBridge, ParallelIterator,
 };
+
+use crate::preproc::preprocess_wgsl;
 // use rayon::prelude::*;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Voxels {
     voxels: Array3<u32>,
     svo: Vec<SvoNode>,
     palette: Vec<glm::Vec4>,
+    // compute: wgpu::ComputePipeline,
 }
 // the octants are "pointers" (offsets in the contiguous memory buffer) to a next node.
 // at index 0 lies the root svo node.
@@ -98,7 +101,7 @@ fn compute_dotvox_model(asset: &DotVoxData) -> Array3<u32> {
         .unwrap();
 
     // round up to pow of 2
-    let max_dim = 2 << dim.max().ilog2();
+    let max_dim = 2 << (dim.max() - 1).ilog2();
 
     println!("dim: {dim:?} ({max_dim})");
 
@@ -118,13 +121,34 @@ fn compute_dotvox_model(asset: &DotVoxData) -> Array3<u32> {
 }
 
 impl Voxels {
-    pub fn new() -> Self {
-        let asset =
-            dot_vox::load("assets/christmas_scene.vox").expect("failed to load magicvoxel asset");
+    pub fn new(device: &wgpu::Device) -> Self {
+        // let asset = dot_vox::load("assets/minecraft.vox").expect("failed to load magicvoxel asset");
+        // let voxels = compute_dotvox_model(&asset);
 
-        let voxels = compute_dotvox_model(&asset);
+        let asset00 =
+            dot_vox::load("assets/minecraft00.vox").expect("failed to load magicvoxel asset");
+        let asset01 =
+            dot_vox::load("assets/minecraft01.vox").expect("failed to load magicvoxel asset");
+        let asset10 =
+            dot_vox::load("assets/minecraft10.vox").expect("failed to load magicvoxel asset");
+        let asset11 =
+            dot_vox::load("assets/minecraft11.vox").expect("failed to load magicvoxel asset");
+        let dim = 16 * 16;
+        let mut voxels = Array3::zeros((dim * 2, dim * 2, dim * 2));
+        voxels
+            .slice_mut(s![..dim, ..dim, ..dim])
+            .assign(&compute_dotvox_model(&asset00));
+        voxels
+            .slice_mut(s![..dim, ..dim, dim..])
+            .assign(&compute_dotvox_model(&asset01));
+        voxels
+            .slice_mut(s![dim.., ..dim, ..dim])
+            .assign(&compute_dotvox_model(&asset10));
+        voxels
+            .slice_mut(s![dim.., ..dim, dim..])
+            .assign(&compute_dotvox_model(&asset11));
 
-        let palette = asset
+        let palette = asset00
             .palette
             .iter()
             .map(|c| {
@@ -137,8 +161,26 @@ impl Voxels {
             })
             .collect();
 
-        let svo = Self::build_svo(&voxels);
-        // let svo = Self::fractal_svo();
+        // let svo = Self::build_svo(&voxels);
+        let svo = Self::fractal_svo();
+
+        // let dim = 8;
+        // let voxels = Array3::from_shape_fn((dim, dim, dim), |(x, y, z)| {
+        //     (z * dim * dim + y * dim + x) as u32
+        // });
+        // voxels[(3, 3, 3)] = 1;
+        // voxels[(0, 0, 0)] = 1;
+        // voxels[(1, 0, 1)] = 1;
+        // voxels[(1, 1, 0)] = 1;
+        // voxels[(0, 1, 1)] = 1;
+        // let slice = voxels.slice(s![0..2, 0..2, 0..2]).to_owned();
+        // voxels.slice_mut(s![2..4, 0..2, 2..4]).assign(&slice);
+        // voxels.slice_mut(s![2..4, 2..4, 0..2]).assign(&slice);
+        // voxels.slice_mut(s![0..2, 2..4, 2..4]).assign(&slice);
+        // let slice = voxels.slice(s![0..4, 0..4, 0..4]).to_owned();
+        // voxels.slice_mut(s![4..8, 0..4, 4..8]).assign(&slice);
+        // voxels.slice_mut(s![4..8, 4..8, 0..4]).assign(&slice);
+        // voxels.slice_mut(s![0..4, 4..8, 4..8]).assign(&slice);
 
         Self {
             voxels,
@@ -163,7 +205,7 @@ impl Voxels {
 
         println!("computed layers");
 
-        let mut ptr = 13u32;
+        let mut ptr = 0u32;
 
         // update octants pointers
         levels.iter_mut().rev().take(svo_depth - 1).for_each(|l| {
@@ -175,47 +217,7 @@ impl Voxels {
 
         println!("computed pointers");
 
-        let mut vec = vec![
-            SvoNode {
-                octants: [1, 1, 1, 1, 1, 1, 1, 1],
-            },
-            SvoNode {
-                octants: [2, 2, 2, 2, 2, 2, 2, 2],
-            },
-            SvoNode {
-                octants: [3, 3, 3, 3, 3, 3, 3, 3],
-            },
-            SvoNode {
-                octants: [4, 4, 4, 4, 4, 4, 4, 4],
-            },
-            SvoNode {
-                octants: [5, 5, 5, 5, 5, 5, 5, 5],
-            },
-            SvoNode {
-                octants: [6, 6, 6, 6, 6, 6, 6, 6],
-            },
-            SvoNode {
-                octants: [7, 7, 7, 7, 7, 7, 7, 7],
-            },
-            SvoNode {
-                octants: [8, 8, 8, 8, 8, 8, 8, 8],
-            },
-            SvoNode {
-                octants: [9, 9, 9, 9, 9, 9, 9, 9],
-            },
-            SvoNode {
-                octants: [10, 10, 10, 10, 10, 10, 10, 10],
-            },
-            SvoNode {
-                octants: [11, 11, 11, 11, 11, 11, 11, 11],
-            },
-            SvoNode {
-                octants: [12, 12, 12, 12, 12, 12, 12, 12],
-            },
-            SvoNode {
-                octants: [13, 13, 13, 13, 13, 13, 13, 13],
-            },
-        ];
+        let mut vec = vec![];
 
         // build up the vec of nodes
         levels.iter().rev().for_each(|l| {
@@ -254,6 +256,14 @@ impl Voxels {
                 octants: [1, 0, 0, 1, 0, 1, 1, 0],
             },
         ]
+    }
+
+    pub fn dim(&self) -> u32 {
+        self.voxels.dim().0 as u32
+    }
+
+    pub fn voxels_bytes(&self) -> &[u8] {
+        bytemuck::cast_slice(self.voxels.as_slice().unwrap())
     }
 
     pub fn svo_bytes(&self) -> &[u8] {

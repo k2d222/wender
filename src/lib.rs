@@ -6,7 +6,7 @@ mod wgpu_util;
 
 use std::{iter, time::Duration};
 
-use ui::FpsCounter;
+use ui::{run_egui, FpsCounter};
 use wgpu::util::DeviceExt;
 use winit::{
     dpi::LogicalSize,
@@ -21,12 +21,8 @@ use nalgebra_glm as glm;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use crate::{
-    camera::{Camera, Controller},
-    preproc::preprocess_wgsl,
-    wgpu_util::init_voxels_buffers,
-};
-use crate::{voxels::Voxels, wgpu_util::init_camera_buffers};
+use crate::camera::{Camera, Controller};
+use crate::{voxels::Voxels, wgpu_util::*};
 
 struct State {
     surface: wgpu::Surface,
@@ -34,11 +30,7 @@ struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
-    voxels_bind_group: wgpu::BindGroup,
+    wgpu_state: WgpuState,
 
     window: Window,
     cursor_grabbed: bool,
@@ -81,9 +73,13 @@ impl State {
                     label: None,
                     features: wgpu::Features::empty(),
                     limits: if cfg!(target_arch = "wasm32") {
-                        wgpu::Limits::downlevel_webgl2_defaults()
+                        wgpu::Limits::downlevel_defaults()
                     } else {
-                        wgpu::Limits::default()
+                        wgpu::Limits {
+                            max_storage_buffer_binding_size: 1 << 30, // 1 GiB
+                            max_buffer_size: 1 << 30,                 // 1 GiB
+                            ..Default::default()
+                        }
                     },
                 },
                 None, // trace_path
@@ -109,83 +105,9 @@ impl State {
         };
         surface.configure(&device, &surface_config);
 
-        let shader_source = preprocess_wgsl(include_str!("shader.wgsl"));
+        let camera = Camera::new(glm::vec2(size.width as f32, size.height as f32));
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source),
-        });
-
-        let camera = Camera::new();
-
-        let (camera_buffer, camera_bind_group, camera_bind_group_layout) =
-            init_camera_buffers(&device, camera.as_bytes());
-
-        let voxels = Voxels::new();
-
-        let (_voxels_buffer, _palette_buffer, voxels_bind_group, voxels_bind_group_layout) =
-            init_voxels_buffers(&device, voxels.svo_bytes(), voxels.palette_bytes());
-
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout, &voxels_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<glm::Vec2>() as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[wgpu::VertexAttribute {
-                        offset: 0,
-                        shader_location: 0,
-                        format: wgpu::VertexFormat::Float32x2,
-                    }],
-                }],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_config.format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent::REPLACE,
-                        alpha: wgpu::BlendComponent::REPLACE,
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview: None,
-        });
-
-        const BUF_DATA: &[glm::Vec2] = &[
-            glm::Vec2::new(-1.0, -1.0),
-            glm::Vec2::new(1.0, -1.0),
-            glm::Vec2::new(1.0, 1.0),
-            glm::Vec2::new(-1.0, -1.0),
-            glm::Vec2::new(1.0, 1.0),
-            glm::Vec2::new(-1.0, 1.0),
-        ];
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(BUF_DATA),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let voxels = Voxels::new(&device);
 
         let controller = Controller::new();
 
@@ -193,17 +115,40 @@ impl State {
         let egui_ctx = egui::Context::default();
         let fps = FpsCounter::new();
 
+        let wgpu_state = WgpuState::new(
+            &device,
+            &queue,
+            &surface_config,
+            camera.as_bytes(),
+            voxels.voxels_bytes(),
+            voxels.dim(),
+            voxels.palette_bytes(),
+        );
+
+        {
+            // compute svo on the gpu in the compute shader
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("compute Encoder"),
+            });
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            queue.submit(iter::once(encoder.finish()));
+        }
+
         Self {
+            wgpu_state,
             surface,
             device,
             queue,
             size,
             config: surface_config,
-            render_pipeline,
-            vertex_buffer,
-            camera_buffer,
-            camera_bind_group,
-            voxels_bind_group,
             window,
             cursor_grabbed: false,
             camera,
@@ -221,62 +166,12 @@ impl State {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
             self.camera.uniform.aspect = new_size.width as f32 / new_size.height as f32;
+            self.camera.uniform.size = glm::vec2(new_size.width as f32, new_size.height as f32);
         }
     }
 
     fn update(&mut self) {
         self.controller.update_camera(&mut self.camera);
-    }
-
-    fn prepare_egui(
-        &mut self,
-        egui_state: &mut egui_winit::State,
-    ) -> (
-        egui_wgpu::renderer::ScreenDescriptor,
-        Vec<egui::ClippedPrimitive>,
-        egui::FullOutput,
-    ) {
-        let raw_input = egui_state.take_egui_input(&self.window);
-
-        self.fps.tick();
-
-        let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            let fps = self.fps.durations();
-            let avg_fps = 10000 / fps.iter().rev().take(10).sum::<Duration>().as_millis();
-
-            egui::Window::new("Hello").show(&ctx, |ui| {
-                egui_plot::Plot::new("FPS")
-                    .height(100.0)
-                    .include_y(0)
-                    .include_y(70)
-                    .include_x(0)
-                    .include_x(self.fps.len() as f64)
-                    .auto_bounds(false.into())
-                    .show(ui, |ui| {
-                        let points = fps
-                            .iter()
-                            .enumerate()
-                            .map(|(n, d)| [n as f64, 1000.0 / d.as_millis() as f64])
-                            .collect::<egui_plot::PlotPoints>();
-                        ui.line(egui_plot::Line::new(points));
-                    });
-                ui.label(format!("fps: {}", avg_fps));
-                ui.label(format!("cam: {:?}", self.camera.uniform.pos));
-                ui.label(format!("speed: {}", self.controller.speed));
-            });
-        });
-
-        let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
-            size_in_pixels: [self.config.width, self.config.height],
-            pixels_per_point: self.window.scale_factor() as f32,
-        };
-
-        let tess = self.egui_ctx.tessellate(
-            full_output.shapes.clone(),
-            screen_descriptor.pixels_per_point,
-        );
-
-        (screen_descriptor, tess, full_output)
     }
 
     fn render(&mut self, egui_state: &mut egui_winit::State) -> Result<(), wgpu::SurfaceError> {
@@ -285,18 +180,46 @@ impl State {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let (egui_screen, egui_primitives, egui_output) = self.prepare_egui(egui_state);
-
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
+                label: Some("render Encoder"),
             });
+
+        self.draw_scene(&view, &mut encoder);
+        self.draw_egui(egui_state, &view, &mut encoder);
+
+        self.queue.submit(iter::once(encoder.finish()));
+        output.present();
+
+        Ok(())
+    }
+
+    fn draw_scene(&self, view: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
+        self.wgpu_state.draw(view, encoder);
+    }
+
+    fn draw_egui(
+        &mut self,
+        egui_state: &mut egui_winit::State,
+        view: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        let egui_output = run_egui(self, egui_state);
+
+        let egui_screen = egui_wgpu::renderer::ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: self.window.scale_factor() as f32,
+        };
+
+        let egui_primitives = self
+            .egui_ctx
+            .tessellate(egui_output.shapes.clone(), egui_screen.pixels_per_point);
 
         self.egui_renderer.update_buffers(
             &self.device,
             &self.queue,
-            &mut encoder,
+            encoder,
             &egui_primitives,
             &egui_screen,
         );
@@ -308,37 +231,25 @@ impl State {
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
+                label: Some("egui render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 ..Default::default()
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.voxels_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-
-            render_pass.draw(0..6, 0..1);
-
             self.egui_renderer
                 .render(&mut render_pass, &egui_primitives, &egui_screen);
         }
 
-        self.queue.submit(iter::once(encoder.finish()));
-        output.present();
-
         for id in &egui_output.textures_delta.free {
             self.egui_renderer.free_texture(id);
         }
-
-        Ok(())
     }
 }
 
@@ -431,11 +342,7 @@ pub async fn run() {
                             WindowEvent::Resized(physical_size) => {
                                 state.resize(*physical_size);
                             }
-                            WindowEvent::MouseWheel {
-                                device_id,
-                                delta,
-                                phase,
-                            } => match delta {
+                            WindowEvent::MouseWheel { delta, .. } => match delta {
                                 MouseScrollDelta::LineDelta(_, y) => {
                                     state.controller.speed *= 2f32.powf(-y);
                                 }
@@ -486,7 +393,7 @@ pub async fn run() {
 
             state
                 .queue
-                .write_buffer(&state.camera_buffer, 0, state.camera.as_bytes());
+                .write_buffer(&state.wgpu_state.camera_buffer, 0, state.camera.as_bytes());
         })
         .expect("event loop run failed");
 }

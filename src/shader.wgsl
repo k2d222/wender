@@ -1,16 +1,19 @@
+const SVO_DEPTH = 8u;
+
 struct Camera {
     pos: vec3f,
     fov_y: f32,
+    size: vec2f,
     aspect: f32,
     view_mat_inv: mat4x4f,
 }
 
-@group(0) @binding(0)
-var<uniform> cam: Camera;
-
 struct SvoNode {
     octants: array<u32, 8>,
 }
+
+@group(0) @binding(0)
+var<uniform> cam: Camera;
 
 @group(1) @binding(0)
 var<storage, read> svo: array<SvoNode>;
@@ -44,7 +47,7 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
     // return vec4f(pos / 16.0 * 0.9 + 0.1, 1.0);
 
     let ambient_color = vec3f(1.0, 1.0, 1.0) * 0.0;
-    let diffuse_color = albedo.rgb;
+    let diffuse_color = pow(albedo.rgb, vec3f(2.2));
     let specular_color = vec3f(1.0, 1.0, 1.0) * 0.1;
     let shininess = 16.0;
 
@@ -59,13 +62,14 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
     let specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color;
 
     let shading_color = ambient_term + diffuse_term + specular_term;
-    return vec4f(shading_color, 1.0);
+    return vec4f(saturate(shading_color), 1.0);
 }
 
 struct CastResult {
     hit: u32,
     hit_pos: vec3f,
     hit_normal: vec3f,
+    iter: u32,
 }
 
 struct Intersect {
@@ -89,33 +93,7 @@ fn intersection(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
     return Intersect(t_min, t_max);
 }
 
-fn front_intersection(ray_pos: vec3f, ray_dir: vec3f) -> f32 {
-    let inv_dir = 1.0 / ray_dir;
-
-    let t1 = (0.0 - ray_pos) * inv_dir;
-    let t2 = (1.0 - ray_pos) * inv_dir;
-
-    let a_min = min(t1, t2);
-    let t_min = max(max(a_min.x, a_min.y), a_min.z);
-
-    return t_min;
-}
-
-fn back_intersection(ray_pos: vec3f, ray_dir: vec3f) -> f32 {
-    let inv_dir = 1.0 / ray_dir;
-
-    let t1 = (0.0 - ray_pos) * inv_dir;
-    let t2 = (1.0 - ray_pos) * inv_dir;
-
-    let a_max = max(t1, t2);
-    let t_max = min(min(a_max.x, a_max.y), a_max.z);
-
-    return t_max;
-}
-
-const SVO_DEPTH = 19u;
-var<private> SVO_INV_DIMS: array<f32, 21> = array(1.0, 1.0/2.0, 1.0/4.0, 1.0/8.0, 1.0/16.0, 1.0/32.0, 1.0/64.0, 1.0/128.0, 1.0/256.0, 1.0/512.0, 1.0/1024.0, 1.0/2048.0, 1.0/4096.0, 1.0/8192.0, 1.0/16384.0, 1.0/32768.0, 1.0/65536.0, 1.0/131072.0, 1.0/262144.0, 1.0/524288.0, 1.0/1048576.0);
-const NO_HIT = CastResult(0u, vec3f(0.0), vec3f(0.0));
+const NO_HIT = CastResult(0u, vec3f(0.0), vec3f(0.0), 0u);
 
 fn vmin(vec: vec3f) -> f32 {
     return min(min(vec.x, vec.y), vec.z);
@@ -123,6 +101,14 @@ fn vmin(vec: vec3f) -> f32 {
 
 fn vmax(vec: vec3f) -> f32 {
     return max(max(vec.x, vec.y), vec.z);
+}
+
+fn cmpmin(vec: vec3f) -> vec3<bool> {
+    return vec.xyz <= min(vec.yzx, vec.zxy);
+}
+
+fn cmpmax(vec: vec3f) -> vec3<bool> {
+    return vec.xyz >= max(vec.yzx, vec.zxy);
 }
 
 fn raycast_svo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
@@ -134,7 +120,7 @@ fn raycast_svo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
 
     let ray_dir = abs(ray_dir_);
     let ray_pos = ray_pos_ * vec3f(ray_dir_ >= vec3f(0.0)) + (node_width - ray_pos_) * vec3f(ray_dir_ < vec3f(0.0));
-    let mirror = (ray_dir_ < vec3f(0.0));
+    let mirror = vec3i(ray_dir_ < vec3f(0.0));
     let side_dt = 1.0 / ray_dir; // time to traverse 1 voxel in each x,y,z
 
     var t = t0;
@@ -143,13 +129,14 @@ fn raycast_svo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
     var octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t))); // distance to the end of the current octant
 
     let start_t = -ray_pos * side_dt;
-    var incr_mask = start_t.xyz >= max(start_t.yzx, start_t.zxy);
+    var incr_mask = cmpmax(-ray_pos * side_dt);
 
-    for (var i = 0; i < 1000; i++) {
+    for (var i = 0u; i < 1000u; i++) {
         // outside octants, must pop the stack or finish raycast
         if t == vmin(node_end * side_dt) {
             if svo_depth == SVO_DEPTH { // completely out
-                return NO_HIT;
+                // return NO_HIT;
+                return CastResult(0u, vec3f(0.0), vec3f(0.0), i);
             }
             else { // "pop" the recursion stack
                 node_end = node_end_stack[svo_depth];
@@ -162,9 +149,7 @@ fn raycast_svo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
         }
 
         else {
-            let octant_pos = vec3i(octant_end == node_end & !mirror | octant_end != node_end & mirror);
-            // var octant_pos = vec3i((octant_end * side_dt + t) * 0.5 >= node_mid * side_dt & !mirror | (octant_end * side_dt + t) * 0.5 < node_mid * side_dt & mirror); // position inside the octants (0,0,0) to (1,1,1)
-            // var octant_pos = vec3i(vec3f(t) >= node_mid_t & !mirror | vec3f(t) < node_mid_t & mirror); // position inside the octants (0,0,0) to (1,1,1)
+            let octant_pos = vec3i(octant_end == node_end) ^ mirror;
             let octant_index = dot(octant_pos, vec3i(4, 2, 1)); // octant to index: x*4 + y*2 + z = 0b(xyz)
             let octant_ptr = svo[ptr_stack[svo_depth]].octants[octant_index];
 
@@ -174,7 +159,7 @@ fn raycast_svo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
                     let pos = ray_pos_ + t * ray_dir_;
                     let end_t = octant_end * side_dt;
                     let normal = vec3f(incr_mask) * -sign(ray_dir_);
-                    return CastResult(octant_ptr, pos, normal);
+                    return CastResult(octant_ptr, pos, normal, i);
                 }
                 else { // recurse, push current node to stack
                     svo_depth -= 1u;
@@ -190,11 +175,10 @@ fn raycast_svo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
 
             // octant is empty, move to the next
             else {
-                let end_t = octant_end * side_dt;
-                incr_mask = end_t.xyz <= min(end_t.yzx, end_t.zxy); // which axis boundary is the closest
+                incr_mask = cmpmin(octant_end * side_dt); // which axis boundary is the closest
                 let incr_axis = dot(vec3i(incr_mask), vec3i(0, 1, 2));
 
-                t = vmin(end_t);
+                t = vmin(octant_end * side_dt);
                 // octant_end_t += vec3f(incr_mask) * octant_width;
                 octant_end = node_end * vec3f(incr_mask) + octant_end * vec3f(!incr_mask);
                 // octant_end_t[incr_axis] = node_end_t[incr_axis];
@@ -204,7 +188,7 @@ fn raycast_svo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
 
     // end of iteration
     // return NO_HIT;
-    return CastResult(0u, vec3f(1.0, 0.0, 0.0), vec3f(0.0));
+    return CastResult(0u, vec3f(1.0, 0.0, 0.0), vec3f(0.0), 1000u);
 }
 
 fn raycast_svo(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
@@ -232,22 +216,42 @@ fn cube_face_normal(ipos: vec3i, pos: vec3f) -> vec3f {
     return sign(off) * vec3f(dist == vec3f(max_dist));
 }
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    let dir = (cam.view_mat_inv * normalize(vec4f(
-        in.pos.x * tan(cam.fov_y / 2.0) * cam.aspect,
-        in.pos.y * tan(cam.fov_y / 2.0),
+fn cam_ray_dir(pos: vec2f) -> vec3f {
+    return (cam.view_mat_inv * normalize(vec4f(
+        pos.x * tan(cam.fov_y / 2.0) * cam.aspect,
+        pos.y * tan(cam.fov_y / 2.0),
         1.0,
         0.0,
     ))).xyz;
+}
 
-    let res = raycast_svo(cam.pos, dir);
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let ray_dir = cam_ray_dir(in.pos);
+
+    let res = raycast_svo(cam.pos, ray_dir);
 
     if res.hit != 0u {
         let albedo = palette[res.hit - 1u];
-        return shade(albedo, cam.pos, res.hit_pos, res.hit_normal);
-        // return vec4f(res.hit_normal * 0.5 + 0.5, 1.0);
+        var col = shade(albedo, cam.pos, res.hit_pos, res.hit_normal);
+        // return col;
+
+        // MSAA
+        for (var i = 0; i < 2; i++) {
+            for (var j = 0; j < 2; j++) {
+                let jitter = (vec2f(f32(i), f32(j)) - 0.5) / cam.size;
+                let ray_dir = cam_ray_dir(in.pos + jitter);
+                let res = raycast_svo(cam.pos, ray_dir);
+                let albedo = palette[res.hit - 1u];
+                col += shade(albedo, cam.pos, res.hit_pos, res.hit_normal);
+            }
+        }
+
+        return col / 5.0;
     } else {
-        return vec4f(res.hit_pos, 1.0);
+        var col = res.hit_pos;
+        col.b += f32(res.iter) / 1000.0;
+        col.g += f32(res.iter) / 2000.0;
+        return vec4f(col, 1.0);
     }
 }

@@ -12,8 +12,9 @@ use winit::{
 pub struct CameraUniform {
     pub pos: glm::Vec3,
     pub fov_y: f32,
+    pub size: glm::Vec2,
     pub aspect: f32,
-    _pad: [f32; 3], // padding to ensure correct alignment
+    _pad: [f32; 1], // padding to ensure correct alignment
     pub view_mat_inv: glm::Mat4x4,
 }
 
@@ -35,12 +36,13 @@ pub struct Controller {
 }
 
 impl Camera {
-    pub fn new() -> Self {
+    pub fn new(size: glm::Vec2) -> Self {
         Self {
             uniform: CameraUniform {
                 pos: glm::Vec3::new(-4.0, -4.0, -4.0),
                 fov_y: 70.0 / 180.0 * glm::pi::<f32>(),
                 aspect: 1.0,
+                size,
                 _pad: Default::default(),
                 view_mat_inv: Default::default(),
             },
