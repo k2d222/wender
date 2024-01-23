@@ -1,6 +1,8 @@
 use std::{
+    cmp::{max, min},
     collections::HashMap,
     fs::File,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
@@ -9,6 +11,7 @@ use dot_vox::{Color, DotVoxData, Model, SceneNode, ShapeModel, Voxel};
 use fastanvil::Region;
 use image::{io::Reader as ImageReader, Pixel, RgbImage};
 use itertools::iproduct;
+use ndarray::Array3;
 use palette::{
     color_difference::EuclideanDistance, convert::FromColorUnclamped, FromColor, IntoColor,
 };
@@ -23,7 +26,7 @@ use palette::{
 struct Args {
     /// Path to the input Minecraft .mca file
     #[clap(required = true)]
-    input_mca: PathBuf,
+    mc_save_dir: PathBuf,
 
     /// Path to the "block" folder of a Minecraft ressourcepack
     #[clap(required = true)]
@@ -31,31 +34,31 @@ struct Args {
 
     /// X-coordinate of the chunk
     #[clap(required = true)]
-    cx: usize,
+    s_x: isize,
 
     /// Y-coordinate of the chunk
     #[clap(required = true)]
-    cy: isize,
+    s_y: isize,
 
     /// Z-coordinate of the chunk
     #[clap(required = true)]
-    cz: usize,
+    s_z: isize,
 
     /// X-coordinate of the chunk
     #[clap(required = true)]
-    cx_end: usize,
+    e_x: isize,
 
     /// Y-coordinate of the chunk
     #[clap(required = true)]
-    cy_end: isize,
+    e_y: isize,
 
     /// Z-coordinate of the chunk
     #[clap(required = true)]
-    cz_end: usize,
+    e_z: isize,
 
     /// Path to the output MagicaVoxel .vox file
     #[clap(required = true)]
-    output_vox: PathBuf,
+    output_file: PathBuf,
 
     /// 1 voxel = 1/16 minecraft block
     #[arg(long)]
@@ -124,203 +127,86 @@ fn block_colors(block_textures: &Path, name: &str) -> Option<Vec<Color>> {
     Some(vec)
 }
 
-fn run_normal(args: &Args, mut region: Region<File>) -> DotVoxData {
-    let mut voxels = Vec::with_capacity(
-        (16 * 16 * 16)
-            * (args.cx_end - args.cx + 1)
-            * (args.cy_end - args.cy + 1) as usize
-            * (args.cz_end - args.cz + 1),
-    );
-    let mut colors = Vec::new();
+fn run(args: &Args) -> (Array3<u32>, Vec<[u8; 4]>) {
+    let mut voxels = Array3::zeros((
+        (args.e_x - args.s_x + 1) as usize,
+        (args.e_y - args.s_y + 1) as usize,
+        (args.e_z - args.s_z + 1) as usize,
+    ));
     let mut palette = HashMap::new();
+    let mut colors = Vec::new();
 
-    let precompute = [
-        "stone",
-        "cobblestone",
-        "dirt",
-        "grass_block",
-        "sand",
-        "gravel",
-        "clay",
-        "sandstone",
-        "granite",
-        "andesite",
-        "diorite",
-        "deepslate",
-        "oak_planks",
-        "oak_log",
-        "oak_leaves",
-        "spruce_log",
-        "spruce_leaves",
-        "birch_log",
-        "birch_leaves",
-        "emerald_ore",
-        "lapis_ore",
-        "copper_ore",
-        "coal_ore",
-        "iron_ore",
-        "dripstone_block",
-        "mossy_cobblestone",
-        "spawner",
-        "farmland",
-    ];
-    for name in precompute {
-        let color = block_avg_color(&args.block_textures, name).unwrap();
-        println!("{:20}\t{:?}", name, color);
-        let i = palette.len() as u8;
-        colors.push(color);
-        palette.insert(name.to_string(), i);
-    }
+    let s_rx = args.s_x.div_euclid(16 * 32);
+    let s_rz = args.s_z.div_euclid(16 * 32);
+    let e_rx = args.e_x.div_euclid(16 * 32);
+    let e_rz = args.e_z.div_euclid(16 * 32);
 
-    for (cx, cz) in iproduct!(args.cx..=args.cx_end, args.cz..=args.cz_end) {
-        let data = region.read_chunk(cx, cz).unwrap().unwrap();
-        let chunk = fastanvil::complete::Chunk::from_bytes(&data).unwrap();
+    // for each region file
+    for (rx, rz) in iproduct!(s_rx..=e_rx, s_rz..=e_rz) {
+        println!("processing region {rx} {rz}");
+        let mut region_file = args.mc_save_dir.clone();
+        region_file.push("region");
+        region_file.push(format!("r.{}.{}.mca", rx, rz));
+        let region_file = std::fs::File::open(region_file).expect("missing region file");
+        let mut region = Region::from_stream(region_file).expect("failed to parse region file");
 
-        for cy in args.cy..=args.cy_end {
-            for (x, y, z) in iproduct!(0..16, 0..16, 0..16) {
-                let block = chunk.sections.block(x, y + cy * 16, z).unwrap();
-                let name = &block.name()["minecraft:".len()..];
+        let s_cx = max(args.s_x.div_euclid(16) - rx * 32, 0);
+        let s_cz = max(args.s_z.div_euclid(16) - rz * 32, 0);
+        let e_cx = min(args.e_x.div_euclid(16) - rx * 32, 31);
+        let e_cz = min(args.e_z.div_euclid(16) - rz * 32, 31);
 
-                if !IGNORE_BLOCKS.contains(&name) {
-                    let i = palette.get(name).copied().or_else(|| {
-                        let color = block_avg_color(&args.block_textures, name)?;
-                        println!("{:20}\t{:?}", name, color);
-                        let i = palette.len() as u8;
-                        colors.push(color);
-                        palette.insert(name.to_string(), i);
-                        Some(i)
-                    });
+        // for each chunk in region
+        for (cx, cz) in iproduct!(s_cx..=e_cx, s_cz..=e_cz) {
+            println!("processing chunk {cx} {cz}");
+            let chunk = region.read_chunk(cx as usize, cz as usize).unwrap();
 
-                    if let Some(i) = i {
-                        voxels.push(Voxel {
-                            x: ((cx - args.cx) * 16 + x) as u8,
-                            y: ((cz - args.cz) * 16 + z) as u8,
-                            z: ((cy - args.cy) * 16 + y) as u8,
-                            i,
+            if let Some(chunk) = chunk {
+                let chunk =
+                    fastanvil::complete::Chunk::from_bytes(&chunk).expect("corrupted chunk?");
+                let s_x = max(args.s_x - rx * 32 * 16 - cx * 16, 0);
+                let s_z = max(args.s_z - rz * 32 * 16 - cz * 16, 0);
+                let e_x = min(args.e_x - rx * 32 * 16 - cx * 16, 15);
+                let e_z = min(args.e_z - rz * 32 * 16 - cz * 16, 15);
+
+                // for each block in chunk
+                for (x, y, z) in iproduct!(s_x..=e_x, args.s_y..=args.e_y, s_z..=e_z) {
+                    let block = chunk.sections.block(x as usize, y, z as usize).unwrap();
+                    let name = &block.name()["minecraft:".len()..];
+
+                    if !IGNORE_BLOCKS.contains(&name) {
+                        let i = palette.get(name).copied().or_else(|| {
+                            let color = block_avg_color(&args.block_textures, name)?;
+                            println!("{:20}\t{:?}", name, color);
+                            let i = palette.len() as u32;
+                            colors.push([color.r, color.g, color.b, color.a]);
+                            palette.insert(name.to_string(), i);
+                            Some(i)
                         });
+
+                        if let Some(i) = i {
+                            let x = (x + cx * 16 + rx * 16 * 32 - args.s_x) as usize;
+                            let y = (y - args.s_y) as usize;
+                            let z = (z + cz * 16 + rz * 16 * 32 - args.s_z) as usize;
+                            voxels[(x, y, z)] = i + 1;
+                        }
                     }
                 }
+            } else {
+                println!("chunk not generated!")
             }
         }
     }
 
-    let model = Model {
-        size: dot_vox::Size {
-            x: 16 * (args.cx_end - args.cx + 1) as u32,
-            y: 16 * (args.cz_end - args.cz + 1) as u32,
-            z: 16 * (args.cy_end - args.cy + 1) as u32,
-        },
-        voxels,
-    };
-
-    let scene = SceneNode::Shape {
-        attributes: Default::default(),
-        models: vec![ShapeModel {
-            model_id: 0,
-            attributes: Default::default(),
-        }],
-    };
-
-    let vox_data = DotVoxData {
-        version: 150,
-        models: vec![model],
-        palette: colors,
-        materials: vec![],
-        scenes: vec![scene],
-        layers: vec![],
-    };
-
-    vox_data
-}
-
-fn run_tiny(args: &Args, mut region: Region<File>) -> DotVoxData {
-    let mut voxels = Vec::with_capacity(
-        (16 * 16 * 16)
-            * (args.cx_end - args.cx + 1)
-            * (args.cy_end - args.cy + 1) as usize
-            * (args.cz_end - args.cz + 1),
-    );
-    let colors = iproduct!(0..4, 0..4, 0..4)
-        .map(|(r, g, b)| Color {
-            r: r * 64,
-            g: g * 64,
-            b: b * 64,
-            a: 255,
-        })
-        .collect::<Vec<_>>();
-    println!("{:?}", colors);
-
-    for (cx, cz) in iproduct!(args.cx..=args.cx_end, args.cz..=args.cz_end) {
-        let data = region.read_chunk(cx, cz).unwrap().unwrap();
-        let chunk = fastanvil::complete::Chunk::from_bytes(&data).unwrap();
-
-        for cy in args.cy..=args.cy_end {
-            for (x, y, z) in iproduct!(0..16, 0..16, 0..16) {
-                let block = chunk.sections.block(x, y + cy * 16, z).unwrap();
-                let name = &block.name()["minecraft:".len()..];
-
-                if !IGNORE_BLOCKS.contains(&name) {
-                    let i = (|| {
-                        let color = block_avg_color(&args.block_textures, name)?;
-                        let i = color.r / 64 << 4 + color.g / 64 << 2 + color.b / 64 << 0;
-                        let pal = colors[i as usize];
-                        println!("{:20}\t{:?} - {:?}", name, color, pal);
-                        Some(i)
-                    })();
-
-                    if let Some(i) = i {
-                        voxels.push(Voxel {
-                            x: ((cx - args.cx) * 16 + x) as u8,
-                            y: ((cz - args.cz) * 16 + z) as u8,
-                            z: ((cy - args.cy) * 16 + y) as u8,
-                            i: i as u8,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    let model = Model {
-        size: dot_vox::Size {
-            x: 16 * (args.cx_end - args.cx + 1) as u32,
-            y: 16 * (args.cz_end - args.cz + 1) as u32,
-            z: 16 * (args.cy_end - args.cy + 1) as u32,
-        },
-        voxels,
-    };
-
-    let scene = SceneNode::Shape {
-        attributes: Default::default(),
-        models: vec![ShapeModel {
-            model_id: 0,
-            attributes: Default::default(),
-        }],
-    };
-
-    let vox_data = DotVoxData {
-        version: 150,
-        models: vec![model],
-        palette: colors,
-        materials: vec![],
-        scenes: vec![scene],
-        layers: vec![],
-    };
-
-    vox_data
+    (voxels, colors)
 }
 
 fn main() {
     let args: Args = Args::parse();
-    let in_file = std::fs::File::open(&args.input_mca).unwrap();
-    let mut out_file = std::fs::File::create(&args.output_vox).unwrap();
-    let region = Region::from_stream(in_file).unwrap();
-
-    let vox_data = if args.tiny {
-        run_tiny(&args, region)
-    } else {
-        run_normal(&args, region)
-    };
-
-    vox_data.write_vox(&mut out_file).unwrap();
+    let out_file = File::create(&args.output_file).expect("failed to create output file");
+    let mut out_file = BufWriter::new(out_file);
+    let (voxels, palette) = run(&args);
+    println!("writing to file");
+    bincode::serialize_into(&mut out_file, &(voxels, palette))
+        .expect("failed to serialize / write data");
+    out_file.flush().unwrap();
 }

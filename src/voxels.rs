@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{fs::File, io::BufReader, ops::Deref};
 
 use dot_vox::{Dict, DotVoxData, Frame, Model, SceneNode, ShapeModel};
 use nalgebra_glm as glm;
@@ -125,62 +125,37 @@ impl Voxels {
         // let asset = dot_vox::load("assets/minecraft.vox").expect("failed to load magicvoxel asset");
         // let voxels = compute_dotvox_model(&asset);
 
-        let asset00 =
-            dot_vox::load("assets/minecraft00.vox").expect("failed to load magicvoxel asset");
-        let asset01 =
-            dot_vox::load("assets/minecraft01.vox").expect("failed to load magicvoxel asset");
-        let asset10 =
-            dot_vox::load("assets/minecraft10.vox").expect("failed to load magicvoxel asset");
-        let asset11 =
-            dot_vox::load("assets/minecraft11.vox").expect("failed to load magicvoxel asset");
-        let dim = 16 * 16;
-        let mut voxels = Array3::zeros((dim * 2, dim * 2, dim * 2));
-        voxels
-            .slice_mut(s![..dim, ..dim, ..dim])
-            .assign(&compute_dotvox_model(&asset00));
-        voxels
-            .slice_mut(s![..dim, ..dim, dim..])
-            .assign(&compute_dotvox_model(&asset01));
-        voxels
-            .slice_mut(s![dim.., ..dim, ..dim])
-            .assign(&compute_dotvox_model(&asset10));
-        voxels
-            .slice_mut(s![dim.., ..dim, dim..])
-            .assign(&compute_dotvox_model(&asset11));
+        let asset_file = File::open("assets/minecraft.wvox").expect("missing asset file");
+        let asset_file = BufReader::new(asset_file);
+        let (vox, palette): (Array3<u32>, Vec<[u8; 4]>) =
+            bincode::deserialize_from(asset_file).expect("failed to load asset");
 
-        let palette = asset00
-            .palette
+        // round up to pow of 2
+        let dim = vox.shape().iter().max().unwrap();
+        let max_dim: usize = 2 << (dim - 1).ilog2();
+        println!(
+            "dim: {dim:?} ({max_dim}) -> svo_depth = {}",
+            max_dim.ilog2()
+        );
+        let mut voxels = Array3::zeros((max_dim, max_dim, max_dim));
+        voxels
+            .slice_mut(s![..vox.dim().0, ..vox.dim().1, ..vox.dim().2])
+            .assign(&vox);
+
+        let palette = palette
             .iter()
             .map(|c| {
                 glm::vec4(
-                    c.r as f32 / 255.0,
-                    c.g as f32 / 255.0,
-                    c.b as f32 / 255.0,
-                    c.a as f32 / 255.0,
+                    c[0] as f32 / 255.0,
+                    c[1] as f32 / 255.0,
+                    c[2] as f32 / 255.0,
+                    c[3] as f32 / 255.0,
                 )
             })
             .collect();
 
         // let svo = Self::build_svo(&voxels);
         let svo = Self::fractal_svo();
-
-        // let dim = 8;
-        // let voxels = Array3::from_shape_fn((dim, dim, dim), |(x, y, z)| {
-        //     (z * dim * dim + y * dim + x) as u32
-        // });
-        // voxels[(3, 3, 3)] = 1;
-        // voxels[(0, 0, 0)] = 1;
-        // voxels[(1, 0, 1)] = 1;
-        // voxels[(1, 1, 0)] = 1;
-        // voxels[(0, 1, 1)] = 1;
-        // let slice = voxels.slice(s![0..2, 0..2, 0..2]).to_owned();
-        // voxels.slice_mut(s![2..4, 0..2, 2..4]).assign(&slice);
-        // voxels.slice_mut(s![2..4, 2..4, 0..2]).assign(&slice);
-        // voxels.slice_mut(s![0..2, 2..4, 2..4]).assign(&slice);
-        // let slice = voxels.slice(s![0..4, 0..4, 0..4]).to_owned();
-        // voxels.slice_mut(s![4..8, 0..4, 4..8]).assign(&slice);
-        // voxels.slice_mut(s![4..8, 4..8, 0..4]).assign(&slice);
-        // voxels.slice_mut(s![0..4, 4..8, 4..8]).assign(&slice);
 
         Self {
             voxels,

@@ -1,4 +1,4 @@
-const SVO_DEPTH = 8u;
+const SVO_DEPTH = 7u;
 
 struct Camera {
     pos: vec3f,

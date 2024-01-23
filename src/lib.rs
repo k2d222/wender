@@ -76,8 +76,8 @@ impl State {
                         wgpu::Limits::downlevel_defaults()
                     } else {
                         wgpu::Limits {
-                            max_storage_buffer_binding_size: 1 << 30, // 1 GiB
-                            max_buffer_size: 1 << 30,                 // 1 GiB
+                            max_storage_buffer_binding_size: (1 << 30) * 2 - 1, // 5 GiB
+                            max_buffer_size: (1 << 30) * 2 - 1,                 // 5 GiB
                             ..Default::default()
                         }
                     },
