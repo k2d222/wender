@@ -142,6 +142,11 @@ impl Voxels {
             .slice_mut(s![..vox.dim().0, ..vox.dim().1, ..vox.dim().2])
             .assign(&vox);
 
+        // let mut voxels = Array3::zeros((4, 4, 4));
+        // voxels[(1, 1, 1)] = 1;
+        // let voxels =
+        //     Array3::from_shape_fn((8, 8, 8), |(x, y, z)| if x + y + z < 8 { 0 } else { 1 });
+
         let palette = palette
             .iter()
             .map(|c| {

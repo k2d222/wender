@@ -390,6 +390,7 @@ fn create_compute_pipeline(device: &Device) -> ComputePipeline {
         label: Some("compute bind group"),
         entries: &[
             BindGroupLayoutEntry {
+                //in_tex
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Texture {
@@ -400,6 +401,7 @@ fn create_compute_pipeline(device: &Device) -> ComputePipeline {
                 count: None,
             },
             BindGroupLayoutEntry {
+                // dvo
                 binding: 1,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
