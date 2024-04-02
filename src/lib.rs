@@ -111,7 +111,7 @@ impl State {
 
         let camera = Camera::new(glm::vec2(size.width as f32, size.height as f32));
 
-        let voxels = Voxels::new(&device);
+        let voxels = Voxels::new();
 
         let controller = Controller::new();
 
@@ -134,17 +134,6 @@ impl State {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("compute encoder"),
             });
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
-            wgpu_state.compute(&mut encoder, voxels.dim());
             wgpu_state.compute(&mut encoder, voxels.dim());
             queue.submit(iter::once(encoder.finish()));
         }

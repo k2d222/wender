@@ -6,12 +6,12 @@ use crate::preproc::preprocess_wgsl;
 
 pub(crate) struct WgpuState {
     pub camera_buffer: Buffer,
-    svo_buffer: Buffer,
+    dvo_buffer: Buffer,
     palette_buffer: Buffer,
     vertex_buffer: Buffer,
 
     camera_bind_group: BindGroup,
-    svo_bind_group: BindGroup,
+    dvo_bind_group: BindGroup,
     voxels_bind_group: BindGroup,
 
     render_pipeline: RenderPipeline,
@@ -32,7 +32,7 @@ impl WgpuState {
         let compute_pipeline = create_compute_pipeline(device);
 
         let camera_buffer = create_camera_buffer(device, camera_data);
-        let svo_buffer = create_dvo_buffer(device, dim);
+        let dvo_buffer = create_dvo_buffer(device, dim);
         let palette_buffer = create_palette_buffer(device, palette_data);
         let vertex_buffer = create_vertex_buffer(device);
         let voxels_texture = create_voxels_texture(device, queue, dim, voxels_data);
@@ -42,27 +42,27 @@ impl WgpuState {
             &render_pipeline.get_bind_group_layout(0),
             &camera_buffer,
         );
-        let svo_bind_group = create_svo_bind_group(
+        let dvo_bind_group = create_dvo_bind_group(
             device,
             &render_pipeline.get_bind_group_layout(1),
-            &svo_buffer,
+            &dvo_buffer,
             &palette_buffer,
         );
         let voxels_bind_group = create_voxels_bind_group(
             device,
             &compute_pipeline.get_bind_group_layout(0),
             &voxels_texture,
-            &svo_buffer,
+            &dvo_buffer,
         );
 
         Self {
             camera_buffer,
-            svo_buffer,
+            dvo_buffer,
             palette_buffer,
             vertex_buffer,
 
             camera_bind_group,
-            svo_bind_group,
+            dvo_bind_group,
             voxels_bind_group,
 
             render_pipeline,
@@ -86,7 +86,7 @@ impl WgpuState {
 
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-        render_pass.set_bind_group(1, &self.svo_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.dvo_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
         render_pass.draw(0..6, 0..1);
@@ -98,11 +98,15 @@ impl WgpuState {
             timestamp_writes: None,
         });
 
-        println!("compute {}^3", dim / 2);
-
         compute_pass.set_pipeline(&self.compute_pipeline);
         compute_pass.set_bind_group(0, &self.voxels_bind_group, &[]);
-        compute_pass.dispatch_workgroups(dim / 2, dim / 2, dim / 2);
+
+        let mut workgroups = dim / 8; // workgroup_size = (4, 4, 4)
+        while workgroups > 0 {
+            println!("compute {workgroups} workgroups");
+            compute_pass.dispatch_workgroups(workgroups, workgroups, workgroups);
+            workgroups /= 2;
+        }
     }
 }
 
@@ -116,18 +120,8 @@ pub(crate) fn create_palette_buffer(device: &Device, palette_data: &[u8]) -> Buf
     palette_buffer
 }
 
-pub(crate) fn create_voxels_buffer(device: &Device, voxels_data: &[u8]) -> Buffer {
-    let voxels_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("voxels buffer"),
-        contents: voxels_data,
-        usage: BufferUsages::STORAGE,
-    });
-
-    voxels_buffer
-}
-
 pub(crate) fn create_dvo_buffer(device: &Device, dim: u32) -> Buffer {
-    // 4 bytes per svo node (1 u32)
+    // 4 bytes per dvo node (1 u32)
     let depth = dim.ilog2();
     let nodes = (8u64.pow(depth) - 1) / 7;
     println!(
@@ -136,14 +130,14 @@ pub(crate) fn create_dvo_buffer(device: &Device, dim: u32) -> Buffer {
         nodes * 4 / 1024 / 1024
     );
 
-    let svo_buffer = device.create_buffer(&BufferDescriptor {
-        label: Some("svo buffer"),
+    let dvo_buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("dvo buffer"),
         usage: BufferUsages::STORAGE,
         size: nodes * 4,
         mapped_at_creation: false,
     });
 
-    svo_buffer
+    dvo_buffer
 }
 
 pub(crate) fn create_vertex_buffer(device: &Device) -> Buffer {
@@ -182,7 +176,7 @@ pub(crate) fn create_voxels_texture(
     voxels_data: &[u8],
 ) -> Texture {
     println!("compute texture: {}", voxels_data.len());
-    let svo_buffer = device.create_texture_with_data(
+    let dvo_buffer = device.create_texture_with_data(
         queue,
         &TextureDescriptor {
             label: Some("voxels texture"),
@@ -201,7 +195,7 @@ pub(crate) fn create_voxels_texture(
         voxels_data,
     );
 
-    svo_buffer
+    dvo_buffer
 }
 
 pub(crate) fn create_camera_bind_group(
@@ -221,19 +215,19 @@ pub(crate) fn create_camera_bind_group(
     camera_bind_group
 }
 
-pub(crate) fn create_svo_bind_group(
+pub(crate) fn create_dvo_bind_group(
     device: &Device,
     bind_group_layout: &BindGroupLayout,
-    svo_buffer: &Buffer,
+    dvo_buffer: &Buffer,
     palette_buffer: &Buffer,
 ) -> BindGroup {
-    let svo_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        label: Some("svo bind group"),
+    let dvo_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("dvo bind group"),
         layout: &bind_group_layout,
         entries: &[
             BindGroupEntry {
                 binding: 0,
-                resource: svo_buffer.as_entire_binding(),
+                resource: dvo_buffer.as_entire_binding(),
             },
             BindGroupEntry {
                 binding: 1,
@@ -242,14 +236,14 @@ pub(crate) fn create_svo_bind_group(
         ],
     });
 
-    svo_bind_group
+    dvo_bind_group
 }
 
 pub(crate) fn create_voxels_bind_group(
     device: &Device,
     bind_group_layout: &BindGroupLayout,
     voxels_texture: &Texture,
-    svo_buffer: &Buffer,
+    dvo_buffer: &Buffer,
 ) -> BindGroup {
     let texture_view = voxels_texture.create_view(&TextureViewDescriptor {
         label: Some("voxels texture view"),
@@ -262,8 +256,8 @@ pub(crate) fn create_voxels_bind_group(
         array_layer_count: None,
     });
 
-    let svo_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        label: Some("svo bind group"),
+    let dvo_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("dvo bind group"),
         layout: &bind_group_layout,
         entries: &[
             BindGroupEntry {
@@ -272,12 +266,12 @@ pub(crate) fn create_voxels_bind_group(
             },
             BindGroupEntry {
                 binding: 1,
-                resource: svo_buffer.as_entire_binding(),
+                resource: dvo_buffer.as_entire_binding(),
             },
         ],
     });
 
-    svo_bind_group
+    dvo_bind_group
 }
 
 pub(crate) fn create_shader_pipeline(
@@ -291,8 +285,8 @@ pub(crate) fn create_shader_pipeline(
         source: ShaderSource::Wgsl(shader_source),
     });
 
-    let svo_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label: Some("svo bind group layout"),
+    let dvo_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label: Some("dvo bind group layout"),
         entries: &[
             BindGroupLayoutEntry {
                 binding: 0,
@@ -333,7 +327,7 @@ pub(crate) fn create_shader_pipeline(
 
     let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("render pipeline layout"),
-        bind_group_layouts: &[&camera_bind_group_layout, &svo_bind_group_layout],
+        bind_group_layouts: &[&camera_bind_group_layout, &dvo_bind_group_layout],
         push_constant_ranges: &[],
     });
 
