@@ -32,7 +32,7 @@ impl WgpuState {
         let compute_pipeline = create_compute_pipeline(device);
 
         let camera_buffer = create_camera_buffer(device, camera_data);
-        let svo_buffer = create_svo_buffer(device, dim);
+        let svo_buffer = create_dvo_buffer(device, dim);
         let palette_buffer = create_palette_buffer(device, palette_data);
         let vertex_buffer = create_vertex_buffer(device);
         let voxels_texture = create_voxels_texture(device, queue, dim, voxels_data);
@@ -126,20 +126,20 @@ pub(crate) fn create_voxels_buffer(device: &Device, voxels_data: &[u8]) -> Buffe
     voxels_buffer
 }
 
-pub(crate) fn create_svo_buffer(device: &Device, dim: u32) -> Buffer {
-    // 32 bytes per svo node,
+pub(crate) fn create_dvo_buffer(device: &Device, dim: u32) -> Buffer {
+    // 4 bytes per svo node (1 u32)
     let depth = dim.ilog2();
     let nodes = (8u64.pow(depth) - 1) / 7;
     println!(
-        "nodes: {nodes} ({}B = {} MiB)",
-        nodes * 32,
-        nodes * 32 / 1024 / 1024
+        "dvo nodes: {nodes} ({}B = {} MiB)",
+        nodes * 4,
+        nodes * 4 / 1024 / 1024
     );
 
     let svo_buffer = device.create_buffer(&BufferDescriptor {
         label: Some("svo buffer"),
         usage: BufferUsages::STORAGE,
-        size: nodes * 32,
+        size: nodes * 4,
         mapped_at_creation: false,
     });
 
@@ -181,6 +181,7 @@ pub(crate) fn create_voxels_texture(
     dim: u32,
     voxels_data: &[u8],
 ) -> Texture {
+    println!("compute texture: {}", voxels_data.len());
     let svo_buffer = device.create_texture_with_data(
         queue,
         &TextureDescriptor {
@@ -193,7 +194,7 @@ pub(crate) fn create_voxels_texture(
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D3,
-            format: TextureFormat::R32Uint,
+            format: TextureFormat::R8Uint,
             usage: TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         },

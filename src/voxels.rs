@@ -12,7 +12,7 @@ use crate::preproc::preprocess_wgsl;
 
 #[derive(Debug)]
 pub struct Voxels {
-    voxels: Array3<u32>,
+    voxels: Array3<u8>,
     svo: Vec<SvoNode>,
     palette: Vec<glm::Vec4>,
     // compute: wgpu::ComputePipeline,
@@ -125,7 +125,7 @@ impl Voxels {
         // let asset = dot_vox::load("assets/minecraft.vox").expect("failed to load magicvoxel asset");
         // let voxels = compute_dotvox_model(&asset);
 
-        let asset_file = File::open("assets/minecraft.wvox").expect("missing asset file");
+        let asset_file = File::open("assets/minecraft_1000.wvox").expect("missing asset file");
         let asset_file = BufReader::new(asset_file);
         let (vox, palette): (Array3<u32>, Vec<[u8; 4]>) =
             bincode::deserialize_from(asset_file).expect("failed to load asset");
@@ -140,7 +140,12 @@ impl Voxels {
         let mut voxels = Array3::zeros((max_dim, max_dim, max_dim));
         voxels
             .slice_mut(s![..vox.dim().0, ..vox.dim().1, ..vox.dim().2])
-            .assign(&vox);
+            .assign(&vox.mapv(|x| x as u8));
+        println!(
+            "mem: {}B = {}MiB",
+            voxels.len() * 4,
+            voxels.len() * 4 / 1024 / 1024
+        );
 
         // let mut voxels = Array3::zeros((4, 4, 4));
         // voxels[(1, 1, 1)] = 1;

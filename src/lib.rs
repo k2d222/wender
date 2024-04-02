@@ -67,6 +67,8 @@ impl State {
             .await
             .unwrap();
 
+        println!("{:#?}", adapter.limits());
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -75,11 +77,13 @@ impl State {
                     limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_defaults()
                     } else {
-                        wgpu::Limits {
-                            max_storage_buffer_binding_size: (1 << 30) * 2 - 1, // 5 GiB
-                            max_buffer_size: (1 << 30) * 2 - 1,                 // 5 GiB
-                            ..Default::default()
-                        }
+                        // wgpu::Limits {
+                        //     max_storage_buffer_binding_size: (1 << 30) * 2 - 1, // 5 GiB
+                        //     max_buffer_size: (1 << 30) * 2 - 1,                 // 5 GiB
+                        //     max_texture_dimension_3d: 2048,
+                        //     ..Default::default()
+                        // }
+                        adapter.limits()
                     },
                 },
                 None, // trace_path
@@ -128,8 +132,11 @@ impl State {
         {
             // compute svo on the gpu in the compute shader
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("compute Encoder"),
+                label: Some("compute encoder"),
             });
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
+            wgpu_state.compute(&mut encoder, voxels.dim());
             wgpu_state.compute(&mut encoder, voxels.dim());
             wgpu_state.compute(&mut encoder, voxels.dim());
             wgpu_state.compute(&mut encoder, voxels.dim());
