@@ -242,10 +242,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         var col = shade(albedo, cam.pos, res.hit_pos, res.hit_normal);
         // return col;
 
+        let msaa_level = 2;
+
         // MSAA
-        for (var i = 0; i < 2; i++) {
-            for (var j = 0; j < 2; j++) {
-                let jitter = (vec2f(f32(i), f32(j)) - 0.5) / cam.size;
+        for (var i = 0; i < msaa_level * 2; i++) {
+            for (var j = 0; j < msaa_level * 2; j++) {
+                let pos = (2.0 * (vec2f(f32(i), f32(j)) - f32(msaa_level)) - 1.0) / (4.0 * f32(msaa_level * msaa_level) - 1.0);
+                let jitter = pos / cam.size;
                 let ray_dir = cam_ray_dir(in.pos + jitter);
                 let res = raycast_dvo(cam.pos, ray_dir);
                 let albedo = palette[res.hit - 1u];
@@ -253,8 +256,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             }
         }
 
-        return col / 5.0;
-    } else {
+        return col / (1.0 + f32(msaa_level * msaa_level * 4));
+    }
+
+    else {
         var col = res.hit_pos;
         col.b += f32(res.iter) / 100.0;
         col.g += f32(res.iter) / 200.0;
