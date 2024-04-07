@@ -130,67 +130,67 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
     var incr_mask = cmpmax(-ray_pos * side_dt);
 
     for (var i = 0u; i < 1000u; i++) {
-        // outside octants, must pop the stack or finish raycast
-        if t == vmin(node_end * side_dt) {
-            if dvo_depth == 0u { // completely out
-                // return NO_HIT;
-                return CastResult(0u, vec3f(0.0), vec3f(0.0), i);
+
+        let octant_pos = vec3u(octant_end == node_end) ^ mirror;
+        let octant_index = dot(octant_pos, vec3u(4u, 2u, 1u)); // octant to index: x*4 + y*2 + z = 0b(xyz)
+        let octant_filled = extractBits(node, octant_index, 1u);
+
+        // octant is solid, time to "recurse"
+        if octant_filled != 0u {
+            if dvo_depth == DVO_DEPTH { // found a leaf
+                let pos = ray_pos_ + t * ray_dir_;
+                let end_t = octant_end * side_dt;
+                let normal = vec3f(incr_mask) * -sign(ray_dir_);
+                return CastResult(1u, pos, normal, i);
             }
-            else { // "pop" the recursion stack
-                octant_coord /= 2u;
-                node_end = node_end_stack[dvo_depth];
-                dvo_depth -= 1u;
-                node = dvo[ptr_stack[dvo_depth]];
+            else { // recurse, push current node to stack
+                dvo_depth += 1u;
+                let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
+                let w = 1u << dvo_depth;
+                octant_coord = (octant_coord * 2u) + octant_pos;
+                let octant_ptr = base_ptr + dot(octant_coord, vec3u(w * w, w, 1u));
+                ptr_stack[dvo_depth] = octant_ptr;
+                node_end_stack[dvo_depth] = node_end;
+                node = dvo[octant_ptr];
+                // octant_width /= 2.0;
+                // node_width /= 2.0;
                 octant_width = f32(1 << (DVO_DEPTH - dvo_depth));
                 node_width = f32(2 << (DVO_DEPTH - dvo_depth));
-                // octant_width *= 2.0;
-                // node_width *= 2.0;
+                node_end = octant_end;
                 node_mid = node_end - octant_width;
                 octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
             }
         }
 
+        // octant is empty, move to the next
         else {
-            let octant_pos = vec3u(octant_end == node_end) ^ mirror;
-            let octant_index = dot(octant_pos, vec3u(4u, 2u, 1u)); // octant to index: x*4 + y*2 + z = 0b(xyz)
-            let octant_filled = extractBits(node, octant_index, 1u);
+            incr_mask = cmpmin(octant_end * side_dt); // which axis boundary is the closest
+            let incr_axis = dot(vec3i(incr_mask), vec3i(0, 1, 2));
 
-            // octant is solid, time to "recurse"
-            if octant_filled != 0u {
-                if dvo_depth == DVO_DEPTH { // found a leaf
-                    let pos = ray_pos_ + t * ray_dir_;
-                    let end_t = octant_end * side_dt;
-                    let normal = vec3f(incr_mask) * -sign(ray_dir_);
-                    return CastResult(1u, pos, normal, i);
+            t = vmin(octant_end * side_dt);
+            // octant_end_t += vec3f(incr_mask) * octant_width;
+            octant_end = node_end * vec3f(incr_mask) + octant_end * vec3f(!incr_mask);
+            // octant_end_t[incr_axis] = node_end_t[incr_axis];
+            
+            // outside octants, must pop the stack or finish raycast
+            while t == vmin(node_end * side_dt) {
+                if dvo_depth == 0u { // completely out
+                    // return NO_HIT;
+                    return CastResult(0u, vec3f(0.0), vec3f(0.0), i);
                 }
-                else { // recurse, push current node to stack
-                    dvo_depth += 1u;
-                    let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
-                    let w = 1u << dvo_depth;
-                    octant_coord = (octant_coord * 2u) + octant_pos;
-                    let octant_ptr = base_ptr + dot(octant_coord, vec3u(w * w, w, 1u));
-                    ptr_stack[dvo_depth] = octant_ptr;
-                    node_end_stack[dvo_depth] = node_end;
-                    node = dvo[octant_ptr];
-                    // octant_width /= 2.0;
-                    // node_width /= 2.0;
+                else { // "pop" the recursion stack
+                    octant_coord /= 2u;
+                    node_end = node_end_stack[dvo_depth];
+                    dvo_depth -= 1u;
+                    node = dvo[ptr_stack[dvo_depth]];
                     octant_width = f32(1 << (DVO_DEPTH - dvo_depth));
                     node_width = f32(2 << (DVO_DEPTH - dvo_depth));
-                    node_end = octant_end;
+                    // octant_width *= 2.0;
+                    // node_width *= 2.0;
                     node_mid = node_end - octant_width;
                     octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
+                    // return CastResult(0u, vec3f(0.0, 1.0, 0.0), vec3f(0.0), i);
                 }
-            }
-
-            // octant is empty, move to the next
-            else {
-                incr_mask = cmpmin(octant_end * side_dt); // which axis boundary is the closest
-                let incr_axis = dot(vec3i(incr_mask), vec3i(0, 1, 2));
-
-                t = vmin(octant_end * side_dt);
-                // octant_end_t += vec3f(incr_mask) * octant_width;
-                octant_end = node_end * vec3f(incr_mask) + octant_end * vec3f(!incr_mask);
-                // octant_end_t[incr_axis] = node_end_t[incr_axis];
             }
         }
     }
@@ -264,8 +264,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     else {
         var col = res.hit_pos;
-        col.b += f32(res.iter) / 100.0;
-        col.g += f32(res.iter) / 200.0;
+        // col.b += f32(res.iter) / 100.0;
+        // col.g += f32(res.iter) / 200.0;
         return vec4f(col, 1.0);
     }
 }
