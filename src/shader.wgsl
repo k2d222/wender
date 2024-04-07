@@ -118,6 +118,7 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
     var dvo_depth = 0u;
     var node_stack = array<u32, (DVO_DEPTH + 1u)>(); // initialized with 0u
     var node_end_stack = array<vec3f, (DVO_DEPTH + 1u)>(); // initialized with 0u
+    node_stack[0] = dvo[0];
 
     // handle symmetries
     let ray_dir = abs(ray_dir_);
@@ -130,7 +131,6 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
     var node_mid = f32(1 << DVO_DEPTH) - ray_pos; // distance to the middle of the current node (mid-point between octants)
     var octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t))); // distance to the end of the current octant
     var octant_coord = vec3u(0u);
-    var node = dvo[0];
 
     var incr_mask = cmpmax(-ray_pos * side_dt);
 
@@ -138,7 +138,7 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
 
         let octant_pos = vec3u(octant_end == node_end) ^ mirror;
         let octant_index = dot(octant_pos, vec3u(4u, 2u, 1u)); // octant to index: x*4 + y*2 + z = 0b(xyz)
-        let octant_filled = extractBits(node, octant_index, 1u);
+        let octant_filled = extractBits(node_stack[dvo_depth], octant_index, 1u);
 
         // octant is solid, time to "recurse"
         if octant_filled != 0u {
@@ -150,10 +150,9 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
             }
             else { // recurse, push current node to stack
                 node_end_stack[dvo_depth] = node_end;
-                node_stack[dvo_depth] = node;
                 dvo_depth += 1u;
                 octant_coord = (octant_coord * 2u) + octant_pos;
-                node = dvo[dvo_ptr(octant_coord, dvo_depth)];
+                node_stack[dvo_depth] = dvo[dvo_ptr(octant_coord, dvo_depth)];
                 node_end = octant_end;
                 node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
                 octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
@@ -179,7 +178,6 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
                 else { // "pop" the recursion stack
                     dvo_depth -= 1u;
                     octant_coord /= 2u;
-                    node = node_stack[dvo_depth];
                     node_end = node_end_stack[dvo_depth];
                     node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
                     octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
