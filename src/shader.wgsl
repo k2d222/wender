@@ -107,21 +107,27 @@ fn cmpmax(vec: vec3f) -> vec3<bool> {
     return vec.xyz >= max(vec.yzx, vec.zxy);
 }
 
+fn dvo_ptr(octant_coord: vec3u, dvo_depth: u32, mirror: vec3u) -> u32 {
+    let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
+    let w = 1u << dvo_depth;
+    let octant_ptr = base_ptr + dot((w - 1u - 2u * octant_coord) * mirror + octant_coord, vec3u(w * w, w, 1u));
+    return octant_ptr;
+}
+
 fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
     var dvo_depth = 0u;
-    var octant_width = f32(1 << DVO_DEPTH); // 2^depth
-    var node_width = f32(2 << DVO_DEPTH);   // 2^(depth+1)
     var node_stack = array<u32, (DVO_DEPTH + 1u)>(); // initialized with 0u
     var node_end_stack = array<vec3f, (DVO_DEPTH + 1u)>(); // initialized with 0u
 
+    // handle symmetries
     let ray_dir = abs(ray_dir_);
-    let ray_pos = ray_pos_ * vec3f(ray_dir_ >= vec3f(0.0)) + (node_width - ray_pos_) * vec3f(ray_dir_ < vec3f(0.0));
     let mirror = vec3u(ray_dir_ < vec3f(0.0));
+    let ray_pos = ray_pos_ * vec3f(1u - mirror) + (f32(2 << DVO_DEPTH) - ray_pos_) * vec3f(mirror);
     let side_dt = 1.0 / ray_dir; // time to traverse 1 voxel in each x,y,z
 
     var t = t0;
-    var node_end = node_width - ray_pos; // distance to the end of the current node (node = 8 octants)
-    var node_mid = octant_width - ray_pos; // distance to the middle of the current node (mid-point between octants)
+    var node_end = f32(2 << DVO_DEPTH) - ray_pos; // distance to the end of the current node (node = 8 octants)
+    var node_mid = f32(1 << DVO_DEPTH) - ray_pos; // distance to the middle of the current node (mid-point between octants)
     var octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t))); // distance to the end of the current octant
     var octant_coord = vec3u(octant_end == node_end);
     var node = dvo[0];
@@ -142,18 +148,11 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
             }
             else { // recurse, push current node to stack
                 dvo_depth += 1u;
-                let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
-                let w = 1u << dvo_depth;
-                let octant_ptr = base_ptr + dot((w - 1u - 2u * octant_coord) * mirror + octant_coord, vec3u(w * w, w, 1u));
                 node_end_stack[dvo_depth] = node_end;
-                node = dvo[octant_ptr];
+                node = dvo[dvo_ptr(octant_coord, dvo_depth, mirror)];
                 node_stack[dvo_depth] = node;
-                // octant_width /= 2.0;
-                // node_width /= 2.0;
-                octant_width = f32(1 << (DVO_DEPTH - dvo_depth));
-                node_width = f32(2 << (DVO_DEPTH - dvo_depth));
                 node_end = octant_end;
-                node_mid = node_end - octant_width;
+                node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
                 octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
                 octant_coord = octant_coord * 2u + vec3u(octant_end == node_end);
             }
@@ -181,11 +180,7 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
                     node_end = node_end_stack[dvo_depth];
                     dvo_depth -= 1u;
                     node = node_stack[dvo_depth];
-                    octant_width = f32(1 << (DVO_DEPTH - dvo_depth));
-                    node_width = f32(2 << (DVO_DEPTH - dvo_depth));
-                    // octant_width *= 2.0;
-                    // node_width *= 2.0;
-                    node_mid = node_end - octant_width;
+                    node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
                     octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
                 }
             }
@@ -242,7 +237,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         var col = shade(albedo, cam.pos, res.hit_pos, res.hit_normal);
         // return col;
 
-        let msaa_level = 2;
+        let msaa_level = 1;
 
         // MSAA
         for (var i = 0; i < msaa_level * 2; i++) {
