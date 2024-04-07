@@ -128,8 +128,7 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
 
     var t = t0;
     var node_end = f32(2 << DVO_DEPTH) - ray_pos; // distance to the end of the current node (node = 8 octants)
-    var node_mid = f32(1 << DVO_DEPTH) - ray_pos; // distance to the middle of the current node (mid-point between octants)
-    var octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t))); // distance to the end of the current octant
+    var octant_end = mix(f32(1 << DVO_DEPTH) - ray_pos, node_end, step((f32(1 << DVO_DEPTH) - ray_pos) * side_dt, vec3f(t))); // distance to the end of the current octant
     var octant_coord = vec3u(0u);
 
     var incr_mask = cmpmax(-ray_pos * side_dt);
@@ -154,7 +153,7 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
                 octant_coord = (octant_coord * 2u) + octant_pos;
                 node_stack[dvo_depth] = dvo[dvo_ptr(octant_coord, dvo_depth)];
                 node_end = octant_end;
-                node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
+                let node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
                 octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
             }
         }
@@ -165,9 +164,7 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
             let incr_axis = dot(vec3i(incr_mask), vec3i(0, 1, 2));
 
             t = vmin(octant_end * side_dt);
-            // octant_end_t += vec3f(incr_mask) * octant_width;
             octant_end = node_end * vec3f(incr_mask) + octant_end * vec3f(!incr_mask);
-            // octant_end_t[incr_axis] = node_end_t[incr_axis];
             
             // outside octants, must pop the stack or finish raycast
             while t == vmin(node_end * side_dt) {
@@ -179,7 +176,7 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
                     dvo_depth -= 1u;
                     octant_coord /= 2u;
                     node_end = node_end_stack[dvo_depth];
-                    node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
+                    let node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
                     octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
                     // return CastResult(0u, vec3f(0.0, 1.0, 0.0), vec3f(0.0), i);
                 }
