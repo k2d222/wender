@@ -1,14 +1,7 @@
-use std::{fs::File, io::BufReader, ops::Deref};
+use std::{fs::File, io::BufReader};
 
-use dot_vox::{Dict, DotVoxData, Frame, Model, SceneNode, ShapeModel};
 use nalgebra_glm as glm;
-use ndarray::{concatenate, s, Array3, ArrayView3, Axis, Zip};
-use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelIterator, ParallelBridge, ParallelIterator,
-};
-
-use crate::preproc::preprocess_wgsl;
-// use rayon::prelude::*;
+use ndarray::{s, Array3};
 
 #[derive(Debug)]
 pub struct Voxels {
@@ -27,8 +20,8 @@ impl Voxels {
         let dim = vox.shape().iter().max().unwrap();
         let max_dim: usize = 2 << (dim - 1).ilog2();
         println!(
-            "dim: {dim:?} ({max_dim}) -> svo_depth = {}",
-            max_dim.ilog2()
+            "dim: {dim:?} ({max_dim}) -> dvo_depth = {}",
+            max_dim.ilog2() - 1
         );
         let mut voxels = Array3::zeros((max_dim, max_dim, max_dim));
         voxels

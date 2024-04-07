@@ -1,4 +1,4 @@
-const DVO_DEPTH = 9u; // depth = 0 for a 2^3 volume.
+// const DVO_DEPTH = 9u; // depth = 0 for a 2^3 volume.
 
 struct Camera {
     pos: vec3f,

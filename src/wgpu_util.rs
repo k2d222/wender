@@ -28,8 +28,9 @@ impl WgpuState {
         dim: u32,
         palette_data: &[u8],
     ) -> Self {
-        let render_pipeline = create_shader_pipeline(device, surface_config);
-        let compute_pipeline = create_compute_pipeline(device);
+        let dvo_depth = dim.ilog2() - 1;
+        let render_pipeline = create_shader_pipeline(device, surface_config, dvo_depth);
+        let compute_pipeline = create_compute_pipeline(device, dvo_depth);
 
         let camera_buffer = create_camera_buffer(device, camera_data);
         let dvo_buffer = create_dvo_buffer(device, dim);
@@ -277,12 +278,13 @@ pub(crate) fn create_voxels_bind_group(
 pub(crate) fn create_shader_pipeline(
     device: &Device,
     surface_config: &SurfaceConfiguration,
+    dvo_depth: u32,
 ) -> RenderPipeline {
-    let shader_source = preprocess_wgsl(include_str!("shader.wgsl"));
+    let shader_source = preprocess_wgsl(include_str!("shader.wgsl"), dvo_depth);
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("shader"),
-        source: ShaderSource::Wgsl(shader_source),
+        source: ShaderSource::Wgsl(shader_source.into()),
     });
 
     let dvo_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -373,12 +375,12 @@ pub(crate) fn create_shader_pipeline(
     render_pipeline
 }
 
-fn create_compute_pipeline(device: &Device) -> ComputePipeline {
-    let shader_source = preprocess_wgsl(include_str!("compute.wgsl"));
+fn create_compute_pipeline(device: &Device, dvo_depth: u32) -> ComputePipeline {
+    let shader_source = preprocess_wgsl(include_str!("compute.wgsl"), dvo_depth);
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("compute"),
-        source: ShaderSource::Wgsl(shader_source),
+        source: ShaderSource::Wgsl(shader_source.into()),
     });
 
     let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {

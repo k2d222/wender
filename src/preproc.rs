@@ -3,7 +3,8 @@ use std::borrow::Cow;
 use itertools::Itertools;
 use regex::{Captures, Regex};
 
-pub fn preprocess_wgsl(source: &str) -> Cow<str> {
+pub fn preprocess_wgsl(source: &str, dvo_depth: u32) -> String {
+    format!("const DVO_DEPTH = {dvo_depth}u;\n\n{source}")
     // let pattern = r#"#\[recursive (\d+)\]\s*fn(\s+)([\w_\d]+)([\s\S]+?\n\})"#;
     // let re = Regex::new(pattern).unwrap();
 
@@ -24,5 +25,5 @@ pub fn preprocess_wgsl(source: &str) -> Cow<str> {
 
     // processed
 
-    source.into()
+    // source.into()
 }
