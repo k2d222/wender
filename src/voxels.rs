@@ -11,7 +11,7 @@ pub struct Voxels {
 
 impl Voxels {
     pub fn new() -> Self {
-        let asset_file = File::open("assets/minecraft_1000.wvox").expect("missing asset file");
+        let asset_file = File::open("assets/minecraft_511.wvox").expect("missing asset file");
         let asset_file = BufReader::new(asset_file);
         let (vox, palette): (Array3<u32>, Vec<[u8; 4]>) =
             bincode::deserialize_from(asset_file).expect("failed to load asset");
