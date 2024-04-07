@@ -111,7 +111,7 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
     var dvo_depth = 0u;
     var octant_width = f32(1 << DVO_DEPTH); // 2^depth
     var node_width = f32(2 << DVO_DEPTH);   // 2^(depth+1)
-    var ptr_stack = array<u32, (DVO_DEPTH + 1u)>(); // initialized with 0u
+    var node_stack = array<u32, (DVO_DEPTH + 1u)>(); // initialized with 0u
     var node_end_stack = array<vec3f, (DVO_DEPTH + 1u)>(); // initialized with 0u
 
     let ray_dir = abs(ray_dir_);
@@ -145,9 +145,9 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
                 let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
                 let w = 1u << dvo_depth;
                 let octant_ptr = base_ptr + dot((w - 1u - 2u * octant_coord) * mirror + octant_coord, vec3u(w * w, w, 1u));
-                ptr_stack[dvo_depth] = octant_ptr;
                 node_end_stack[dvo_depth] = node_end;
                 node = dvo[octant_ptr];
+                node_stack[dvo_depth] = node;
                 // octant_width /= 2.0;
                 // node_width /= 2.0;
                 octant_width = f32(1 << (DVO_DEPTH - dvo_depth));
@@ -180,7 +180,7 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
                     octant_coord /= 2u;
                     node_end = node_end_stack[dvo_depth];
                     dvo_depth -= 1u;
-                    node = dvo[ptr_stack[dvo_depth]];
+                    node = node_stack[dvo_depth];
                     octant_width = f32(1 << (DVO_DEPTH - dvo_depth));
                     node_width = f32(2 << (DVO_DEPTH - dvo_depth));
                     // octant_width *= 2.0;
