@@ -1,8 +1,9 @@
 use nalgebra_glm as glm;
+use std::collections::HashMap;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
 
-use crate::preproc::preprocess_wgsl;
+use crate::preproc::{self, build_shader};
 
 pub(crate) struct WgpuState {
     pub camera_buffer: Buffer,
@@ -280,7 +281,11 @@ pub(crate) fn create_shader_pipeline(
     surface_config: &SurfaceConfiguration,
     dvo_depth: u32,
 ) -> RenderPipeline {
-    let shader_source = preprocess_wgsl(include_str!("shader.wgsl"), dvo_depth);
+    let preproc_ctx = preproc::Context {
+        main: "src/shader.wgsl".into(),
+        constants: HashMap::from([("DVO_DEPTH".to_owned(), format!("{dvo_depth}u"))]),
+    };
+    let shader_source = build_shader(&preproc_ctx).unwrap();
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("shader"),
@@ -376,7 +381,11 @@ pub(crate) fn create_shader_pipeline(
 }
 
 fn create_compute_pipeline(device: &Device, dvo_depth: u32) -> ComputePipeline {
-    let shader_source = preprocess_wgsl(include_str!("compute.wgsl"), dvo_depth);
+    let preproc_ctx = preproc::Context {
+        main: "src/compute.wgsl".into(),
+        constants: HashMap::from([("DVO_DEPTH".to_owned(), format!("{dvo_depth}u"))]),
+    };
+    let shader_source = build_shader(&preproc_ctx).unwrap();
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("compute"),
