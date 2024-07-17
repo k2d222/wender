@@ -12,7 +12,7 @@ use winit::{
     dpi::LogicalSize,
     event::*,
     event_loop::{ControlFlow, EventLoop},
-    keyboard::{Key, NamedKey},
+    keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
     window::{Window, WindowBuilder},
 };
 
@@ -41,6 +41,8 @@ struct State {
     egui_renderer: egui_wgpu::Renderer,
     egui_ctx: egui::Context,
     fps: FpsCounter,
+
+    dvo_depth: u32,
 }
 
 impl State {
@@ -119,6 +121,8 @@ impl State {
         let egui_ctx = egui::Context::default();
         let fps = FpsCounter::new();
 
+        let dvo_depth = voxels.dim().ilog2() - 1;
+
         let wgpu_state = WgpuState::new(
             &device,
             &queue,
@@ -152,6 +156,7 @@ impl State {
             egui_renderer,
             egui_ctx,
             fps,
+            dvo_depth,
         }
     }
 
@@ -331,6 +336,17 @@ pub async fn run() {
                                         .ok();
                                     state.window.set_cursor_visible(true);
                                     state.cursor_grabbed = false;
+                                } else if event.state == ElementState::Pressed
+                                    && matches!(
+                                        event.physical_key,
+                                        PhysicalKey::Code(KeyCode::KeyR)
+                                    )
+                                {
+                                    state.wgpu_state.reload_shaders(
+                                        &state.device,
+                                        &state.config,
+                                        state.dvo_depth,
+                                    );
                                 } else {
                                     state.controller.process_keyboard(event);
                                 }

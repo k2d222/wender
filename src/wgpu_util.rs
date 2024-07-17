@@ -110,6 +110,16 @@ impl WgpuState {
             workgroups /= 2;
         }
     }
+
+    pub(crate) fn reload_shaders(
+        &mut self,
+        device: &Device,
+        surface_config: &SurfaceConfiguration,
+        dvo_depth: u32,
+    ) {
+        self.render_pipeline = create_shader_pipeline(device, surface_config, dvo_depth);
+        self.compute_pipeline = create_compute_pipeline(device, dvo_depth);
+    }
 }
 
 pub(crate) fn create_palette_buffer(device: &Device, palette_data: &[u8]) -> Buffer {

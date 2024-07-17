@@ -50,7 +50,7 @@ pub fn run_egui(state: &mut State, egui_state: &mut egui_winit::State) -> egui::
         let fps = state.fps.durations();
         let avg_fps = 10000 / fps.iter().rev().take(10).sum::<Duration>().as_millis();
 
-        egui::Window::new("Hello").show(&ctx, |ui| {
+        egui::Window::new("Debug").show(&ctx, |ui| {
             egui_plot::Plot::new("FPS")
                 .height(100.0)
                 .include_y(0)
@@ -69,6 +69,10 @@ pub fn run_egui(state: &mut State, egui_state: &mut egui_winit::State) -> egui::
             ui.label(format!("fps: {}", avg_fps));
             ui.label(format!("cam: {:?}", state.camera.uniform.pos));
             ui.label(format!("speed: {}", state.controller.speed));
+        });
+
+        egui::Window::new("Controls").show(&ctx, |ui| {
+            ui.add(egui::Slider::new(&mut state.dvo_depth, 0..=10).text("DVO depth"));
         });
     });
 
