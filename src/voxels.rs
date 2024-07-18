@@ -1,7 +1,7 @@
 use std::{fs::File, io::BufReader};
 
 use nalgebra_glm as glm;
-use ndarray::{s, Array3};
+use ndarray::{s, Array3, Zip};
 
 #[derive(Debug)]
 pub struct Voxels {
@@ -33,11 +33,11 @@ impl Voxels {
             voxels.len() * 4 / 1024 / 1024
         );
 
-        let colors = voxels.mapv(|i| {
-            if i == 0 {
+        let colors = Zip::from(&voxels).par_map_collect(|i| {
+            if *i == 0 {
                 Default::default()
             } else {
-                glm::U8Vec4::from(palette[i as usize - 1])
+                glm::U8Vec4::from(palette[*i as usize - 1])
             }
         });
 
