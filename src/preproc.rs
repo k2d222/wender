@@ -83,5 +83,5 @@ pub fn build_shader(context: &Context) -> Result<String, Error> {
         source,
     );
 
-    println!("{source}");
+    Ok(source)
 }

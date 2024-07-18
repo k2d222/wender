@@ -6,7 +6,7 @@ use ndarray::{s, Array3};
 #[derive(Debug)]
 pub struct Voxels {
     voxels: Array3<u8>,
-    palette: Vec<glm::Vec4>,
+    colors: Array3<glm::U8Vec4>,
 }
 
 impl Voxels {
@@ -33,19 +33,15 @@ impl Voxels {
             voxels.len() * 4 / 1024 / 1024
         );
 
-        let palette = palette
-            .iter()
-            .map(|c| {
-                glm::vec4(
-                    c[0] as f32 / 255.0,
-                    c[1] as f32 / 255.0,
-                    c[2] as f32 / 255.0,
-                    c[3] as f32 / 255.0,
-                )
-            })
-            .collect();
+        let colors = voxels.mapv(|i| {
+            if i == 0 {
+                Default::default()
+            } else {
+                glm::U8Vec4::from(palette[i as usize - 1])
+            }
+        });
 
-        Self { voxels, palette }
+        Self { voxels, colors }
     }
 
     pub fn dim(&self) -> u32 {
@@ -56,7 +52,7 @@ impl Voxels {
         bytemuck::cast_slice(self.voxels.as_slice().unwrap())
     }
 
-    pub fn palette_bytes(&self) -> &[u8] {
-        bytemuck::cast_slice(self.palette.as_slice())
+    pub fn colors_bytes(&self) -> &[u8] {
+        bytemuck::cast_slice(self.colors.as_slice().unwrap())
     }
 }

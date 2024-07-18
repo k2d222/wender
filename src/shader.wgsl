@@ -5,7 +5,21 @@ var<uniform> cam: Camera;
 var<storage, read> dvo: array<u32>;
 
 @group(1) @binding(1)
-var<storage, read> palette: array<vec4f>;
+var colors: texture_storage_3d<rgba8unorm, read>;
+
+// provide functions to access the dvo, so octree can use it in an agnostic way.
+const OCTREE_DEPTH = DVO_DEPTH;
+
+fn octree_root() -> u32 {
+    return dvo[0];
+}
+
+fn octree_node(octant_coord: vec3u, dvo_depth: u32) -> u32 {
+    let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
+    let w = 1u << dvo_depth;
+    let octant_ptr = base_ptr + dot(octant_coord, vec3u(w * w, w, 1u));
+    return dvo[octant_ptr];
+}
 
 // preproc_include(octree.wgsl)
 
@@ -82,11 +96,11 @@ fn cam_ray_dir(pos: vec2f) -> vec3f {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let ray_dir = cam_ray_dir(in.pos);
 
-    let res = raycast_dvo(cam.pos, ray_dir);
+    let res = raycast_octree(cam.pos, ray_dir);
 
     if res.hit != 0u {
-        let albedo = palette[res.hit - 1u];
-        var col = shade(albedo, cam.pos, res.hit_pos, res.hit_normal);
+        let albedo = textureLoad(colors, res.voxel);
+        var col = shade(albedo, cam.pos, res.pos, res.normal);
         // return col;
 
         let msaa_level = 1;
@@ -97,9 +111,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
                 let pos = (2.0 * (vec2f(f32(i), f32(j)) - f32(msaa_level)) - 1.0) / (4.0 * f32(msaa_level * msaa_level) - 1.0);
                 let jitter = pos / cam.size;
                 let ray_dir = cam_ray_dir(in.pos + jitter);
-                let res = raycast_dvo(cam.pos, ray_dir);
-                let albedo = palette[res.hit - 1u];
-                col += shade(albedo, cam.pos, res.hit_pos, res.hit_normal);
+                let res = raycast_octree(cam.pos, ray_dir);
+                let albedo = textureLoad(colors, res.voxel);
+                col += shade(albedo, cam.pos, res.pos, res.normal);
             }
         }
 
@@ -107,7 +121,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     }
 
     else {
-        var col = res.hit_pos;
+        var col = res.pos;
         // col.b += f32(res.iter) / 100.0;
         // col.g += f32(res.iter) / 200.0;
         return vec4f(col, 1.0);

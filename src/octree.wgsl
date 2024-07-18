@@ -1,16 +1,20 @@
 // this shader is a "module" supposed to be included.
-// this module "exports" `raycast_dvo` and `intersection`
-// this module "requires" `var<storage, read> dvo: array<u32>`
-//
-// constants below are overriden by the preprocessor.
-// const DVO_DEPTH = 9u; // depth = 0 for a 2^3 volume.
+// 
+// this module "exports":
+// fn raycast_octree(ray_pos: vec3f, ray_dir: vec3f) -> CastResult
+// 
+// this module "requires":
+// const OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume.
+// fn octree_root() -> u32
+// fn octree_node(octant_coord: vec3u, octree_depth: u32) -> u32
 
 // preproc_include(util.wgsl)
 
 struct CastResult {
     hit: u32,
-    hit_pos: vec3f,
-    hit_normal: vec3f,
+    pos: vec3f,
+    normal: vec3f,
+    voxel:vec3u,
     iter: u32,
 }
 
@@ -35,30 +39,24 @@ fn intersection(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
     return Intersect(t_min, t_max);
 }
 
-const NO_HIT = CastResult(0u, vec3f(0.0), vec3f(0.0), 0u);
+const NO_HIT = CastResult(0u, vec3f(0.0), vec3f(0.0), vec3u(0u), 0u);
 
-fn dvo_ptr(octant_coord: vec3u, dvo_depth: u32) -> u32 {
-    let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
-    let w = 1u << dvo_depth;
-    let octant_ptr = base_ptr + dot(octant_coord, vec3u(w * w, w, 1u));
-    return octant_ptr;
-}
 
-fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
-    var dvo_depth = 0u;
-    var node_stack = array<u32, (DVO_DEPTH + 1u)>(); // initialized with 0u
-    var node_end_stack = array<vec3f, (DVO_DEPTH + 1u)>(); // initialized with 0u
-    node_stack[0] = dvo[0];
+fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
+    var octree_depth = 0u;
+    var node_stack = array<u32, (OCTREE_DEPTH + 1u)>(); // initialized with 0u
+    var node_end_stack = array<vec3f, (OCTREE_DEPTH + 1u)>(); // initialized with 0u
+    node_stack[0] = octree_root();
 
     // handle symmetries
     let ray_dir = abs(ray_dir_);
     let mirror = vec3u(ray_dir_ < vec3f(0.0));
-    let ray_pos = ray_pos_ * vec3f(1u - mirror) + (f32(2 << DVO_DEPTH) - ray_pos_) * vec3f(mirror);
+    let ray_pos = ray_pos_ * vec3f(1u - mirror) + (f32(2 << OCTREE_DEPTH) - ray_pos_) * vec3f(mirror);
     let side_dt = 1.0 / ray_dir; // time to traverse 1 voxel in each x,y,z
 
     var t = t0;
-    var node_end = f32(2 << DVO_DEPTH) - ray_pos; // distance to the end of the current node (node = 8 octants)
-    var octant_end = mix(f32(1 << DVO_DEPTH) - ray_pos, node_end, step((f32(1 << DVO_DEPTH) - ray_pos) * side_dt, vec3f(t))); // distance to the end of the current octant
+    var node_end = f32(2 << OCTREE_DEPTH) - ray_pos; // distance to the end of the current node (node = 8 octants)
+    var octant_end = mix(f32(1 << OCTREE_DEPTH) - ray_pos, node_end, step((f32(1 << OCTREE_DEPTH) - ray_pos) * side_dt, vec3f(t))); // distance to the end of the current octant
     var octant_coord = vec3u(0u);
 
     var incr_mask = cmpmax(-ray_pos * side_dt);
@@ -67,23 +65,23 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
 
         let octant_pos = vec3u(octant_end == node_end) ^ mirror;
         let octant_index = dot(octant_pos, vec3u(4u, 2u, 1u)); // octant to index: x*4 + y*2 + z = 0b(xyz)
-        let octant_filled = extractBits(node_stack[dvo_depth], octant_index, 1u);
+        let octant_filled = extractBits(node_stack[octree_depth], octant_index, 1u);
 
         // octant is solid, time to "recurse"
         if octant_filled != 0u {
-            if dvo_depth == DVO_DEPTH { // found a leaf
+            if octree_depth == OCTREE_DEPTH { // found a leaf
                 let pos = ray_pos_ + t * ray_dir_;
-                let end_t = octant_end * side_dt;
                 let normal = vec3f(incr_mask) * -sign(ray_dir_);
-                return CastResult(1u, pos, normal, i);
+                let voxel = (octant_coord * 2u) + octant_pos;
+                return CastResult(1u, pos, normal, voxel, i);
             }
             else { // recurse, push current node to stack
-                node_end_stack[dvo_depth] = node_end;
-                dvo_depth += 1u;
+                node_end_stack[octree_depth] = node_end;
+                octree_depth += 1u;
                 octant_coord = (octant_coord * 2u) + octant_pos;
-                node_stack[dvo_depth] = dvo[dvo_ptr(octant_coord, dvo_depth)];
+                node_stack[octree_depth] = octree_node(octant_coord, octree_depth);
                 node_end = octant_end;
-                let node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
+                let node_mid = node_end - f32(1 << (OCTREE_DEPTH - octree_depth));
                 octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
             }
         }
@@ -98,30 +96,27 @@ fn raycast_dvo_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
             
             // outside octants, must pop the stack or finish raycast
             while t == vmin(node_end * side_dt) {
-                if dvo_depth == 0u { // completely out
-                    // return NO_HIT;
-                    return CastResult(0u, vec3f(0.0), vec3f(0.0), i);
+                if octree_depth == 0u { // completely out
+                    return NO_HIT;
                 }
                 else { // "pop" the recursion stack
-                    dvo_depth -= 1u;
+                    octree_depth -= 1u;
                     octant_coord /= 2u;
-                    node_end = node_end_stack[dvo_depth];
-                    let node_mid = node_end - f32(1 << (DVO_DEPTH - dvo_depth));
+                    node_end = node_end_stack[octree_depth];
+                    let node_mid = node_end - f32(1 << (OCTREE_DEPTH - octree_depth));
                     octant_end = mix(node_mid, node_end, step(node_mid * side_dt, vec3f(t)));
-                    // return CastResult(0u, vec3f(0.0, 1.0, 0.0), vec3f(0.0), i);
                 }
             }
         }
     }
 
     // end of iteration
-    // return NO_HIT;
-    return CastResult(0u, vec3f(1.0, 0.0, 0.0), vec3f(0.0), 1000u);
+    return NO_HIT;
 }
 
-fn raycast_dvo(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    let dvo_width = f32(2 << DVO_DEPTH);
-    let tr_pos = ray_pos / dvo_width;
+fn raycast_octree(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
+    let octree_width = f32(2 << OCTREE_DEPTH);
+    let tr_pos = ray_pos / octree_width;
     var t = intersection(tr_pos, ray_dir);
 
     // no hit
@@ -131,7 +126,7 @@ fn raycast_dvo(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
 
     else {
         // TODO: 1000.0 avoids a numerical error, which idk where it comes from.
-        // return raycast_dvo_impl(ray_pos - 1000.0 * ray_dir, ray_dir, max(t.t_min, 0.0) * dvo_width + 1000.0);
-        return raycast_dvo_impl(ray_pos, ray_dir, max(t.t_min, 0.0) * dvo_width);
+        // return raycast_octree_impl(ray_pos - 1000.0 * ray_dir, ray_dir, max(t.t_min, 0.0) * octree_width + 1000.0);
+        return raycast_octree_impl(ray_pos, ray_dir, max(t.t_min, 0.0) * octree_width);
     }
 }

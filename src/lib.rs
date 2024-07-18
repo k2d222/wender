@@ -75,7 +75,7 @@ impl State {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::empty(),
+                    features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                     limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_defaults()
                     } else {
@@ -130,7 +130,7 @@ impl State {
             camera.as_bytes(),
             voxels.voxels_bytes(),
             voxels.dim(),
-            voxels.palette_bytes(),
+            voxels.colors_bytes(),
         );
 
         {

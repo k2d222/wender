@@ -8,7 +8,7 @@ use crate::preproc::{self, build_shader};
 pub(crate) struct WgpuState {
     pub camera_buffer: Buffer,
     dvo_buffer: Buffer,
-    palette_buffer: Buffer,
+    colors_texture: Texture,
     vertex_buffer: Buffer,
 
     camera_bind_group: BindGroup,
@@ -27,7 +27,7 @@ impl WgpuState {
         camera_data: &[u8],
         voxels_data: &[u8],
         dim: u32,
-        palette_data: &[u8],
+        colors_data: &[u8],
     ) -> Self {
         let dvo_depth = dim.ilog2() - 1;
         let render_pipeline = create_shader_pipeline(device, surface_config, dvo_depth);
@@ -35,7 +35,7 @@ impl WgpuState {
 
         let camera_buffer = create_camera_buffer(device, camera_data);
         let dvo_buffer = create_dvo_buffer(device, dim);
-        let palette_buffer = create_palette_buffer(device, palette_data);
+        let colors_texture = create_colors_texture(device, queue, dim, colors_data);
         let vertex_buffer = create_vertex_buffer(device);
         let voxels_texture = create_voxels_texture(device, queue, dim, voxels_data);
 
@@ -48,7 +48,7 @@ impl WgpuState {
             device,
             &render_pipeline.get_bind_group_layout(1),
             &dvo_buffer,
-            &palette_buffer,
+            &colors_texture,
         );
         let voxels_bind_group = create_voxels_bind_group(
             device,
@@ -60,7 +60,7 @@ impl WgpuState {
         Self {
             camera_buffer,
             dvo_buffer,
-            palette_buffer,
+            colors_texture,
             vertex_buffer,
 
             camera_bind_group,
@@ -122,14 +122,32 @@ impl WgpuState {
     }
 }
 
-pub(crate) fn create_palette_buffer(device: &Device, palette_data: &[u8]) -> Buffer {
-    let palette_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("palette buffer"),
-        contents: palette_data,
-        usage: BufferUsages::STORAGE,
-    });
+pub(crate) fn create_colors_texture(
+    device: &Device,
+    queue: &Queue,
+    dim: u32,
+    colors_data: &[u8],
+) -> Texture {
+    let colors_texture = device.create_texture_with_data(
+        queue,
+        &TextureDescriptor {
+            label: Some("colors texture"),
+            size: Extent3d {
+                width: dim,
+                height: dim,
+                depth_or_array_layers: dim,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D3,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        },
+        colors_data,
+    );
 
-    palette_buffer
+    colors_texture
 }
 
 pub(crate) fn create_dvo_buffer(device: &Device, dim: u32) -> Buffer {
@@ -187,8 +205,7 @@ pub(crate) fn create_voxels_texture(
     dim: u32,
     voxels_data: &[u8],
 ) -> Texture {
-    println!("compute texture: {}", voxels_data.len());
-    let dvo_buffer = device.create_texture_with_data(
+    let voxels_texture = device.create_texture_with_data(
         queue,
         &TextureDescriptor {
             label: Some("voxels texture"),
@@ -207,7 +224,7 @@ pub(crate) fn create_voxels_texture(
         voxels_data,
     );
 
-    dvo_buffer
+    voxels_texture
 }
 
 pub(crate) fn create_camera_bind_group(
@@ -231,8 +248,13 @@ pub(crate) fn create_dvo_bind_group(
     device: &Device,
     bind_group_layout: &BindGroupLayout,
     dvo_buffer: &Buffer,
-    palette_buffer: &Buffer,
+    colors_texture: &Texture,
 ) -> BindGroup {
+    let texture_view = colors_texture.create_view(&TextureViewDescriptor {
+        label: Some("colors texture view"),
+        ..Default::default()
+    });
+
     let dvo_bind_group = device.create_bind_group(&BindGroupDescriptor {
         label: Some("dvo bind group"),
         layout: &bind_group_layout,
@@ -243,7 +265,7 @@ pub(crate) fn create_dvo_bind_group(
             },
             BindGroupEntry {
                 binding: 1,
-                resource: palette_buffer.as_entire_binding(),
+                resource: BindingResource::TextureView(&texture_view),
             },
         ],
     });
@@ -259,13 +281,7 @@ pub(crate) fn create_voxels_bind_group(
 ) -> BindGroup {
     let texture_view = voxels_texture.create_view(&TextureViewDescriptor {
         label: Some("voxels texture view"),
-        format: None,
-        dimension: None,
-        aspect: TextureAspect::All,
-        base_mip_level: 0,
-        mip_level_count: None,
-        base_array_layer: 0,
-        array_layer_count: None,
+        ..Default::default()
     });
 
     let dvo_bind_group = device.create_bind_group(&BindGroupDescriptor {
@@ -318,10 +334,10 @@ pub(crate) fn create_shader_pipeline(
             BindGroupLayoutEntry {
                 binding: 1,
                 visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+                ty: BindingType::StorageTexture {
+                    access: StorageTextureAccess::ReadOnly,
+                    format: TextureFormat::Rgba8Unorm,
+                    view_dimension: TextureViewDimension::D3,
                 },
                 count: None,
             },
@@ -329,7 +345,7 @@ pub(crate) fn create_shader_pipeline(
     });
 
     let camera_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label: Some("Bind group layout"),
+        label: Some("camera bind group layout"),
         entries: &[BindGroupLayoutEntry {
             binding: 0,
             visibility: ShaderStages::FRAGMENT,
@@ -403,7 +419,7 @@ fn create_compute_pipeline(device: &Device, dvo_depth: u32) -> ComputePipeline {
     });
 
     let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label: Some("compute bind group"),
+        label: Some("compute bind group layout"),
         entries: &[
             BindGroupLayoutEntry {
                 //in_tex
