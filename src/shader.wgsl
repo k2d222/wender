@@ -7,7 +7,7 @@ var<storage, read> dvo: array<u32>;
 @group(1) @binding(1)
 var<storage, read> palette: array<vec4f>;
 
-// preproc::include "rt.wgsl"
+// preproc_include(octree.wgsl)
 
 struct Camera {
     pos: vec3f,

@@ -5,6 +5,8 @@
 // constants below are overriden by the preprocessor.
 // const DVO_DEPTH = 9u; // depth = 0 for a 2^3 volume.
 
+// preproc_include(util.wgsl)
+
 struct CastResult {
     hit: u32,
     hit_pos: vec3f,
@@ -34,22 +36,6 @@ fn intersection(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
 }
 
 const NO_HIT = CastResult(0u, vec3f(0.0), vec3f(0.0), 0u);
-
-fn vmin(vec: vec3f) -> f32 {
-    return min(min(vec.x, vec.y), vec.z);
-}
-
-fn vmax(vec: vec3f) -> f32 {
-    return max(max(vec.x, vec.y), vec.z);
-}
-
-fn cmpmin(vec: vec3f) -> vec3<bool> {
-    return vec.xyz <= min(vec.yzx, vec.zxy);
-}
-
-fn cmpmax(vec: vec3f) -> vec3<bool> {
-    return vec.xyz >= max(vec.yzx, vec.zxy);
-}
 
 fn dvo_ptr(octant_coord: vec3u, dvo_depth: u32) -> u32 {
     let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
