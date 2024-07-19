@@ -61,7 +61,7 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult 
 
     var incr_mask = cmpmax(-ray_pos * side_dt);
 
-    for (var i = 0u; i < 1000u; i++) {
+    for (var i = 0u; i < 100u; i++) {
 
         let octant_pos = vec3u(octant_end == node_end) ^ mirror;
         let octant_index = dot(octant_pos, vec3u(4u, 2u, 1u)); // octant to index: x*4 + y*2 + z = 0b(xyz)

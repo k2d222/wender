@@ -54,22 +54,28 @@ fn vs_main(
 }
 
 fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> vec4f {
-    // return vec4f(pos / 16.0 * 0.9 + 0.1, 1.0);
-
     let ambient_color = vec3f(1.0, 1.0, 1.0) * 0.0;
     let diffuse_color = pow(albedo.rgb, vec3f(2.2));
     let specular_color = vec3f(1.0, 1.0, 1.0) * 0.1;
     let shininess = 16.0;
 
     let view_dir = normalize(view_pos - hit_pos);
-    let light_dir = view_dir;
-    let light_dist = length(view_pos - hit_pos);
+    // let light_dist = length(view_pos - hit_pos);
+    let sun_light_dir = normalize(vec3f(-3.0, 1.0, 2.0));
+    // let light_dir = view_dir;
+    let light_dir = sun_light_dir;
     let half_vector = normalize(light_dir + view_dir);
-    // var sun_light_dir = normalize(vec3f(1.0, -1.0, 1.0));
 
-    let ambient_term = ambient_color;
-    let diffuse_term = max(dot(hit_normal, light_dir), 0.0) * diffuse_color;
-    let specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color;
+    let res = raycast_octree(hit_pos + sun_light_dir * 0.5, sun_light_dir);
+
+    var ambient_term = ambient_color;
+    var diffuse_term = max(dot(hit_normal, light_dir), 0.0) * diffuse_color;
+    var specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color;
+
+    if res.hit == 1u {
+        diffuse_term *= 0.1;
+        specular_term *= 0.1;
+    }
 
     let shading_color = ambient_term + diffuse_term + specular_term;
     return vec4f(saturate(shading_color), 1.0);
@@ -103,7 +109,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         var col = shade(albedo, cam.pos, res.pos, res.normal);
         // return col;
 
-        let msaa_level = 1;
+        let msaa_level = 0;
 
         // MSAA
         for (var i = 0; i < msaa_level * 2; i++) {
