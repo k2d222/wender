@@ -39,8 +39,11 @@ fn intersection(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
     return Intersect(t_min, t_max);
 }
 
-const NO_HIT = CastResult(0u, vec3f(0.0), vec3f(0.0), vec3u(0u), 0u);
+const MAX_ITER = 200u;
 
+fn no_hit(iter: u32) -> CastResult {
+    return CastResult(0u, vec3f(0.0), vec3f(0.0), vec3u(0u), iter);
+}
 
 fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
     var octree_depth = 0u;
@@ -61,7 +64,7 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult 
 
     var incr_mask = cmpmax(-ray_pos * side_dt);
 
-    for (var i = 0u; i < 100u; i++) {
+    for (var i = 0u; i < MAX_ITER; i++) {
 
         let octant_pos = vec3u(octant_end == node_end) ^ mirror;
         let octant_index = dot(octant_pos, vec3u(4u, 2u, 1u)); // octant to index: x*4 + y*2 + z = 0b(xyz)
@@ -91,13 +94,15 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult 
             incr_mask = cmpmin(octant_end * side_dt); // which axis boundary is the closest
             let incr_axis = dot(vec3i(incr_mask), vec3i(0, 1, 2));
 
-            t = vmin(octant_end * side_dt);
-            octant_end = node_end * vec3f(incr_mask) + octant_end * vec3f(!incr_mask);
+            // t = vmin(octant_end * side_dt);
+            // octant_end = node_end * vec3f(incr_mask) + octant_end * vec3f(!incr_mask);
+            t = (octant_end * side_dt)[incr_axis];
+            octant_end[incr_axis] = node_end[incr_axis];
             
             // outside octants, must pop the stack or finish raycast
             while t == vmin(node_end * side_dt) {
                 if octree_depth == 0u { // completely out
-                    return NO_HIT;
+                    return no_hit(i);
                 }
                 else { // "pop" the recursion stack
                     octree_depth -= 1u;
@@ -111,7 +116,7 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult 
     }
 
     // end of iteration
-    return NO_HIT;
+    return no_hit(MAX_ITER);
 }
 
 fn raycast_octree(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
@@ -121,7 +126,7 @@ fn raycast_octree(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
 
     // no hit
     if t.t_min > t.t_max || t.t_max < 0.0 {
-        return NO_HIT;
+        return no_hit(0u);
     }
 
     else {

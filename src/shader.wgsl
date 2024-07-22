@@ -1,5 +1,12 @@
+// this module "requires":
+// const DVO_DEPTH: u32; // depth = 0 for a 2^3 volume.
+// const MSAA_LEVEL: u32 // msaa with 2^n probes, 0 to disable
+
 @group(0) @binding(0)
 var<uniform> cam: Camera;
+
+@group(0) @binding(1)
+var<uniform> lights: Lights;
 
 @group(1) @binding(0)
 var<storage, read> dvo: array<u32>;
@@ -31,6 +38,10 @@ struct Camera {
     view_mat_inv: mat4x4f,
 }
 
+struct Lights {
+    sun_dir: vec3f,
+}
+
 struct VertexInput {
     @location(0) position: vec2f,
 }
@@ -54,30 +65,33 @@ fn vs_main(
 }
 
 fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> vec4f {
-    let ambient_color = vec3f(1.0, 1.0, 1.0) * 0.0;
+    let ambient_color = albedo.rgb * 0.01;
     let diffuse_color = pow(albedo.rgb, vec3f(2.2));
     let specular_color = vec3f(1.0, 1.0, 1.0) * 0.1;
     let shininess = 16.0;
 
     let view_dir = normalize(view_pos - hit_pos);
-    // let light_dist = length(view_pos - hit_pos);
-    let sun_light_dir = normalize(vec3f(-3.0, 1.0, 2.0));
-    // let light_dir = view_dir;
-    let light_dir = sun_light_dir;
+    let light_dir = lights.sun_dir;
     let half_vector = normalize(light_dir + view_dir);
 
-    let res = raycast_octree(hit_pos + sun_light_dir * 0.5, sun_light_dir);
+    let res = raycast_octree(hit_pos + light_dir * 0.001, light_dir);
 
     var ambient_term = ambient_color;
     var diffuse_term = max(dot(hit_normal, light_dir), 0.0) * diffuse_color;
     var specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color;
 
     if res.hit == 1u {
+        ambient_term *= 2.0;
         diffuse_term *= 0.1;
         specular_term *= 0.1;
     }
 
-    let shading_color = ambient_term + diffuse_term + specular_term;
+    var shading_color = ambient_term + diffuse_term + specular_term;
+
+    if res.hit == 0u && res.iter == MAX_ITER {
+        shading_color = vec3f(1.0, 1.0, 0.0);
+    }
+
     return vec4f(saturate(shading_color), 1.0);
 }
 
@@ -104,17 +118,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let res = raycast_octree(cam.pos, ray_dir);
 
+    if res.hit == 0u && res.iter == MAX_ITER {
+        return vec4f(1.0, 0.0, 0.0, 1.0);
+    }
+
     if res.hit != 0u {
         let albedo = textureLoad(colors, res.voxel);
         var col = shade(albedo, cam.pos, res.pos, res.normal);
         // return col;
 
-        let msaa_level = 0;
-
         // MSAA
-        for (var i = 0; i < msaa_level * 2; i++) {
-            for (var j = 0; j < msaa_level * 2; j++) {
-                let pos = (2.0 * (vec2f(f32(i), f32(j)) - f32(msaa_level)) - 1.0) / (4.0 * f32(msaa_level * msaa_level) - 1.0);
+        for (var i = 0u; i < MSAA_LEVEL * 2u; i++) {
+            for (var j = 0u; j < MSAA_LEVEL * 2u; j++) {
+                let pos = (2.0 * (vec2f(f32(i), f32(j)) - f32(MSAA_LEVEL)) - 1.0) / (4.0 * f32(MSAA_LEVEL * MSAA_LEVEL) - 1.0);
                 let jitter = pos / cam.size;
                 let ray_dir = cam_ray_dir(in.pos + jitter);
                 let res = raycast_octree(cam.pos, ray_dir);
@@ -123,7 +139,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             }
         }
 
-        return col / (1.0 + f32(msaa_level * msaa_level * 4));
+        return col / (1.0 + f32(MSAA_LEVEL * MSAA_LEVEL * 4u));
     }
 
     else {

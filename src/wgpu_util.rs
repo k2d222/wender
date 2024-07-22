@@ -7,6 +7,7 @@ use crate::preproc::{self, build_shader};
 
 pub(crate) struct WgpuState {
     pub camera_buffer: Buffer,
+    pub lights_buffer: Buffer,
     dvo_buffer: Buffer,
     colors_texture: Texture,
     vertex_buffer: Buffer,
@@ -25,24 +26,28 @@ impl WgpuState {
         queue: &Queue,
         surface_config: &SurfaceConfiguration,
         camera_data: &[u8],
+        lights_data: &[u8],
         voxels_data: &[u8],
         dim: u32,
         colors_data: &[u8],
+        msaa_level: u32,
     ) -> Self {
         let dvo_depth = dim.ilog2() - 1;
-        let render_pipeline = create_shader_pipeline(device, surface_config, dvo_depth);
+        let render_pipeline = create_shader_pipeline(device, surface_config, dvo_depth, msaa_level);
         let compute_pipeline = create_compute_pipeline(device, dvo_depth);
 
         let camera_buffer = create_camera_buffer(device, camera_data);
+        let lights_buffer = create_lights_buffer(device, lights_data);
         let dvo_buffer = create_dvo_buffer(device, dim);
         let colors_texture = create_colors_texture(device, queue, dim, colors_data);
         let vertex_buffer = create_vertex_buffer(device);
         let voxels_texture = create_voxels_texture(device, queue, dim, voxels_data);
 
-        let camera_bind_group = create_camera_bind_group(
+        let uniforms_bind_group = create_uniforms_bind_group(
             device,
             &render_pipeline.get_bind_group_layout(0),
             &camera_buffer,
+            &lights_buffer,
         );
         let dvo_bind_group = create_dvo_bind_group(
             device,
@@ -59,11 +64,12 @@ impl WgpuState {
 
         Self {
             camera_buffer,
+            lights_buffer,
             dvo_buffer,
             colors_texture,
             vertex_buffer,
 
-            camera_bind_group,
+            camera_bind_group: uniforms_bind_group,
             dvo_bind_group,
             voxels_bind_group,
 
@@ -116,8 +122,10 @@ impl WgpuState {
         device: &Device,
         surface_config: &SurfaceConfiguration,
         dvo_depth: u32,
+        msaa_level: u32,
     ) {
-        self.render_pipeline = create_shader_pipeline(device, surface_config, dvo_depth);
+        self.render_pipeline =
+            create_shader_pipeline(device, surface_config, dvo_depth, msaa_level);
         self.compute_pipeline = create_compute_pipeline(device, dvo_depth);
     }
 }
@@ -191,12 +199,22 @@ pub(crate) fn create_vertex_buffer(device: &Device) -> Buffer {
 
 pub(crate) fn create_camera_buffer(device: &Device, camera_data: &[u8]) -> Buffer {
     let camera_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("Camera buffer"),
+        label: Some("camera buffer"),
         contents: camera_data,
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
 
     camera_buffer
+}
+
+pub(crate) fn create_lights_buffer(device: &Device, lights_data: &[u8]) -> Buffer {
+    let lights_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("lights buffer"),
+        contents: lights_data,
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+
+    lights_buffer
 }
 
 pub(crate) fn create_voxels_texture(
@@ -227,18 +245,25 @@ pub(crate) fn create_voxels_texture(
     voxels_texture
 }
 
-pub(crate) fn create_camera_bind_group(
+pub(crate) fn create_uniforms_bind_group(
     device: &Device,
     bind_group_layout: &BindGroupLayout,
     camera_buffer: &Buffer,
+    lights_buffer: &Buffer,
 ) -> BindGroup {
     let camera_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        label: Some("Camera bind group"),
+        label: Some("uniforms bind group"),
         layout: &bind_group_layout,
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: camera_buffer.as_entire_binding(),
-        }],
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: lights_buffer.as_entire_binding(),
+            },
+        ],
     });
 
     camera_bind_group
@@ -306,10 +331,14 @@ pub(crate) fn create_shader_pipeline(
     device: &Device,
     surface_config: &SurfaceConfiguration,
     dvo_depth: u32,
+    msaa_level: u32,
 ) -> RenderPipeline {
     let preproc_ctx = preproc::Context {
         main: "src/shader.wgsl".into(),
-        constants: HashMap::from([("DVO_DEPTH".to_owned(), format!("{dvo_depth}u"))]),
+        constants: HashMap::from([
+            ("DVO_DEPTH".to_owned(), format!("{dvo_depth}u")),
+            ("MSAA_LEVEL".to_owned(), format!("{msaa_level}u")),
+        ]),
     };
     let shader_source = build_shader(&preproc_ctx).unwrap();
 
@@ -344,23 +373,35 @@ pub(crate) fn create_shader_pipeline(
         ],
     });
 
-    let camera_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label: Some("camera bind group layout"),
-        entries: &[BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
+    let uniforms_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label: Some("uniforms bind group layout"),
+        entries: &[
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
             },
-            count: None,
-        }],
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
     });
 
     let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("render pipeline layout"),
-        bind_group_layouts: &[&camera_bind_group_layout, &dvo_bind_group_layout],
+        bind_group_layouts: &[&uniforms_bind_group_layout, &dvo_bind_group_layout],
         push_constant_ranges: &[],
     });
 

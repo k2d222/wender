@@ -1,4 +1,5 @@
 mod camera;
+mod lights;
 mod preproc;
 mod ui;
 mod voxels;
@@ -22,6 +23,7 @@ use nalgebra_glm as glm;
 use wasm_bindgen::prelude::*;
 
 use crate::camera::{Camera, Controller};
+use crate::lights::Lights;
 use crate::{voxels::Voxels, wgpu_util::*};
 
 struct State {
@@ -36,6 +38,7 @@ struct State {
     cursor_grabbed: bool,
 
     camera: Camera,
+    lights: Lights,
     controller: Controller,
 
     egui_renderer: egui_wgpu::Renderer,
@@ -43,6 +46,7 @@ struct State {
     fps: FpsCounter,
 
     dvo_depth: u32,
+    msaa_level: u32,
 }
 
 impl State {
@@ -112,6 +116,10 @@ impl State {
         surface.configure(&device, &surface_config);
 
         let camera = Camera::new(glm::vec2(size.width as f32, size.height as f32));
+        let lights = Lights::new(
+            f32::to_degrees(glm::half_pi()),
+            f32::to_degrees(glm::half_pi()),
+        );
 
         let voxels = Voxels::new();
 
@@ -122,15 +130,18 @@ impl State {
         let fps = FpsCounter::new();
 
         let dvo_depth = voxels.dim().ilog2() - 1;
+        let msaa_level = 1;
 
         let wgpu_state = WgpuState::new(
             &device,
             &queue,
             &surface_config,
             camera.as_bytes(),
+            lights.as_bytes(),
             voxels.voxels_bytes(),
             voxels.dim(),
             voxels.colors_bytes(),
+            msaa_level,
         );
 
         {
@@ -152,11 +163,13 @@ impl State {
             window,
             cursor_grabbed: false,
             camera,
+            lights,
             controller,
             egui_renderer,
             egui_ctx,
             fps,
             dvo_depth,
+            msaa_level,
         }
     }
 
@@ -173,6 +186,7 @@ impl State {
 
     fn update(&mut self) {
         self.controller.update_camera(&mut self.camera);
+        self.lights.update();
     }
 
     fn render(&mut self, egui_state: &mut egui_winit::State) -> Result<(), wgpu::SurfaceError> {
@@ -346,6 +360,7 @@ pub async fn run() {
                                         &state.device,
                                         &state.config,
                                         state.dvo_depth,
+                                        state.msaa_level,
                                     );
                                 } else {
                                     state.controller.process_keyboard(event);
@@ -406,6 +421,9 @@ pub async fn run() {
             state
                 .queue
                 .write_buffer(&state.wgpu_state.camera_buffer, 0, state.camera.as_bytes());
+            state
+                .queue
+                .write_buffer(&state.wgpu_state.lights_buffer, 0, state.lights.as_bytes());
         })
         .expect("event loop run failed");
 }
