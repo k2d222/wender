@@ -1,8 +1,8 @@
 @group(0) @binding(0)
-var in_tex: texture_3d<u32>;
+var voxels: texture_storage_3d<r8uint, read>;
 
 @group(0) @binding(1)
-var<storage, read_write> dvo: array<u32>;
+var dvo: texture_storage_3d<r8uint, write>;
 
 fn vmax(vec: vec3u) -> u32 {
     return max(max(vec.x, vec.y), vec.z);
@@ -20,54 +20,25 @@ fn pack_octants(octants: array<bool, 8>) -> u32 {
         u32(octants[7]) << 7u;
 }
 
-// because of workgroup size, in_tex size must be at least 4*4*4 * 2*2*2.
-// 4*4*4 must respect the wgpu::Limits. (256 for webgpu).
-// shader must be run n times to ensure synchronization. n = ???.
-@compute @workgroup_size(4, 4, 4)
+// shader must be run dvo_depth times, for each depth level.
+@compute @workgroup_size(1)
 fn cs_main(
     @builtin(global_invocation_id) index: vec3u
 ) {
-    var dim = textureDimensions(in_tex).x / 2u; // current width of the octree layer
-    let dvo_depth = firstTrailingBit(dim); // depth = 0 for a 2^3 volume.
-    var offset = ((1u << (3u * dvo_depth)) - 1u) / 7u; // offset in the dvo array of the current dvo depth layer. Computed as sum(2^(3i), i=0->dvo_depth)
-    var indexer = vec3(dim * dim, dim, 1u);
+    var dim = textureDimensions(dvo).x; // current width of the octree layer
 
     let i2 = index * 2u;
     let octants = array(
-        textureLoad(in_tex, i2 + vec3(0u, 0u, 0u), 0).r != 0u,
-        textureLoad(in_tex, i2 + vec3(0u, 0u, 1u), 0).r != 0u,
-        textureLoad(in_tex, i2 + vec3(0u, 1u, 0u), 0).r != 0u,
-        textureLoad(in_tex, i2 + vec3(0u, 1u, 1u), 0).r != 0u,
-        textureLoad(in_tex, i2 + vec3(1u, 0u, 0u), 0).r != 0u,
-        textureLoad(in_tex, i2 + vec3(1u, 0u, 1u), 0).r != 0u,
-        textureLoad(in_tex, i2 + vec3(1u, 1u, 0u), 0).r != 0u,
-        textureLoad(in_tex, i2 + vec3(1u, 1u, 1u), 0).r != 0u,
+        textureLoad(voxels, i2 + vec3(0u, 0u, 0u)).r != 0u,
+        textureLoad(voxels, i2 + vec3(0u, 0u, 1u)).r != 0u,
+        textureLoad(voxels, i2 + vec3(0u, 1u, 0u)).r != 0u,
+        textureLoad(voxels, i2 + vec3(0u, 1u, 1u)).r != 0u,
+        textureLoad(voxels, i2 + vec3(1u, 0u, 0u)).r != 0u,
+        textureLoad(voxels, i2 + vec3(1u, 0u, 1u)).r != 0u,
+        textureLoad(voxels, i2 + vec3(1u, 1u, 0u)).r != 0u,
+        textureLoad(voxels, i2 + vec3(1u, 1u, 1u)).r != 0u,
     );
 
-    dvo[offset + dot(index, indexer)] = pack_octants(octants);
-
-    // first, all threads work, then 1/8th of them, ... until depth=0
-    let work_to_do = dvo_depth - min(dvo_depth, firstLeadingBit((vmax(index) << 1u) + 1u));
-
-    for (var k = 0u; k < work_to_do; k++) {
-
-        storageBarrier();
-
-        let octants = array(
-            dvo[offset + dot(i2 + vec3(0u, 0u, 0u), indexer)] != 0u,
-            dvo[offset + dot(i2 + vec3(0u, 0u, 1u), indexer)] != 0u,
-            dvo[offset + dot(i2 + vec3(0u, 1u, 0u), indexer)] != 0u,
-            dvo[offset + dot(i2 + vec3(0u, 1u, 1u), indexer)] != 0u,
-            dvo[offset + dot(i2 + vec3(1u, 0u, 0u), indexer)] != 0u,
-            dvo[offset + dot(i2 + vec3(1u, 0u, 1u), indexer)] != 0u,
-            dvo[offset + dot(i2 + vec3(1u, 1u, 0u), indexer)] != 0u,
-            dvo[offset + dot(i2 + vec3(1u, 1u, 1u), indexer)] != 0u,
-        );
-
-        dim /= 2u;
-        offset -= dim * dim * dim;
-        indexer = vec3(dim * dim, dim, 1u);
-
-        dvo[offset + dot(index, indexer)] = pack_octants(octants);
-    }
+    let value = pack_octants(octants);
+    textureStore(dvo, index, vec4(value));
 }

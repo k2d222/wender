@@ -5,7 +5,6 @@
 // 
 // this module "requires":
 // const OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume.
-// fn octree_root() -> u32
 // fn octree_node(octant_coord: vec3u, octree_depth: u32) -> u32
 
 // preproc_include(util.wgsl)
@@ -48,8 +47,8 @@ fn no_hit(iter: u32) -> CastResult {
 fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f, t0: f32) -> CastResult {
     var octree_depth = 0u;
     var node_stack = array<u32, (OCTREE_DEPTH + 1u)>(); // initialized with 0u
-    var node_end_stack = array<vec3f, (OCTREE_DEPTH + 1u)>(); // initialized with 0u
-    node_stack[0] = octree_root();
+    var node_end_stack = array<vec3f, (OCTREE_DEPTH + 1u)>(); // initialized with 0.0
+    node_stack[0] = octree_node(vec3u(0u), 0u); // root node
 
     // handle symmetries
     let ray_dir = abs(ray_dir_);

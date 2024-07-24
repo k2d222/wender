@@ -1,5 +1,6 @@
 // this module "requires":
 // const DVO_DEPTH: u32; // depth = 0 for a 2^3 volume.
+// const MIP_LAYERS: u32 // should be DVO_DEPTH+1
 // const MSAA_LEVEL: u32 // msaa with 2^n probes, 0 to disable
 
 @group(0) @binding(0)
@@ -9,7 +10,7 @@ var<uniform> cam: Camera;
 var<uniform> lights: Lights;
 
 @group(1) @binding(0)
-var<storage, read> dvo: array<u32>;
+var dvo: texture_3d<u32>;
 
 @group(1) @binding(1)
 var colors: texture_storage_3d<rgba8unorm, read>;
@@ -17,15 +18,12 @@ var colors: texture_storage_3d<rgba8unorm, read>;
 // provide functions to access the dvo, so octree can use it in an agnostic way.
 const OCTREE_DEPTH = DVO_DEPTH;
 
-fn octree_root() -> u32 {
-    return dvo[0];
-}
-
 fn octree_node(octant_coord: vec3u, dvo_depth: u32) -> u32 {
-    let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
-    let w = 1u << dvo_depth;
-    let octant_ptr = base_ptr + dot(octant_coord, vec3u(w * w, w, 1u));
-    return dvo[octant_ptr];
+    // let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
+    // let w = 1u << dvo_depth;
+    // let octant_ptr = base_ptr + dot(octant_coord, vec3u(w * w, w, 1u));
+    // return dvo[octant_ptr];
+    return textureLoad(dvo, octant_coord, i32(textureNumLevels(dvo) - 1u - dvo_depth)).r; // the cast to i32 is a bug in naga afaik
 }
 
 // preproc_include(octree.wgsl)
