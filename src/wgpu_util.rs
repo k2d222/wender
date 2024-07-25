@@ -1,4 +1,5 @@
 use nalgebra_glm as glm;
+use pollster::FutureExt;
 use std::collections::HashMap;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
@@ -33,8 +34,9 @@ impl WgpuState {
         msaa_level: u32,
     ) -> Self {
         let dvo_depth = dim.ilog2() - 1;
-        let render_pipeline = create_shader_pipeline(device, surface_config, dvo_depth, msaa_level);
-        let compute_pipeline = create_compute_pipeline(device, dvo_depth);
+        let render_pipeline =
+            create_shader_pipeline(device, surface_config, dvo_depth, msaa_level).unwrap();
+        let compute_pipeline = create_compute_pipeline(device, dvo_depth).unwrap();
 
         let camera_buffer = create_camera_buffer(device, camera_data);
         let lights_buffer = create_lights_buffer(device, lights_data);
@@ -171,9 +173,14 @@ impl WgpuState {
         dvo_depth: u32,
         msaa_level: u32,
     ) {
-        self.render_pipeline =
-            create_shader_pipeline(device, surface_config, dvo_depth, msaa_level);
-        self.compute_pipeline = create_compute_pipeline(device, dvo_depth);
+        if let Some(render_pipeline) =
+            create_shader_pipeline(device, surface_config, dvo_depth, msaa_level)
+        {
+            self.render_pipeline = render_pipeline;
+        }
+        if let Some(compute_pipeline) = create_compute_pipeline(device, dvo_depth) {
+            self.compute_pipeline = compute_pipeline;
+        }
     }
 }
 
@@ -387,7 +394,7 @@ pub(crate) fn create_shader_pipeline(
     surface_config: &SurfaceConfiguration,
     dvo_depth: u32,
     msaa_level: u32,
-) -> RenderPipeline {
+) -> Option<RenderPipeline> {
     let preproc_ctx = preproc::Context {
         main: "src/shader.wgsl".into(),
         constants: HashMap::from([
@@ -397,10 +404,21 @@ pub(crate) fn create_shader_pipeline(
     };
     let shader_source = build_shader(&preproc_ctx).unwrap();
 
+    device.push_error_scope(ErrorFilter::Validation);
+
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("shader"),
         source: ShaderSource::Wgsl(shader_source.into()),
     });
+
+    let err = device.pop_error_scope().block_on();
+    match err {
+        Some(err) => {
+            eprintln!("{}", err);
+            return None;
+        }
+        None => println!("compiled render shader"),
+    }
 
     let dvo_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("dvo bind group layout"),
@@ -503,20 +521,31 @@ pub(crate) fn create_shader_pipeline(
         multiview: None,
     });
 
-    render_pipeline
+    Some(render_pipeline)
 }
 
-fn create_compute_pipeline(device: &Device, dvo_depth: u32) -> ComputePipeline {
+fn create_compute_pipeline(device: &Device, dvo_depth: u32) -> Option<ComputePipeline> {
     let preproc_ctx = preproc::Context {
         main: "src/compute.wgsl".into(),
         constants: HashMap::from([("DVO_DEPTH".to_owned(), format!("{dvo_depth}u"))]),
     };
     let shader_source = build_shader(&preproc_ctx).unwrap();
 
+    device.push_error_scope(ErrorFilter::Validation);
+
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("compute"),
         source: ShaderSource::Wgsl(shader_source.into()),
     });
+
+    let err = device.pop_error_scope().block_on();
+    match err {
+        Some(err) => {
+            eprintln!("{}", err);
+            return None;
+        }
+        None => println!("compiled compute shader"),
+    }
 
     let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("compute bind group layout"),
@@ -559,5 +588,5 @@ fn create_compute_pipeline(device: &Device, dvo_depth: u32) -> ComputePipeline {
         entry_point: "cs_main",
     });
 
-    compute_pipeline
+    Some(compute_pipeline)
 }

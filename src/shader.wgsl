@@ -78,7 +78,7 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
     var diffuse_term = max(dot(hit_normal, light_dir), 0.0) * diffuse_color;
     var specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color;
 
-    if res.hit == 1u {
+    if res.hit {
         ambient_term *= 2.0;
         diffuse_term *= 0.1;
         specular_term *= 0.1;
@@ -86,7 +86,7 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
 
     var shading_color = ambient_term + diffuse_term + specular_term;
 
-    if res.hit == 0u && res.iter == MAX_ITER {
+    if !res.hit && res.iter == MAX_ITER {
         shading_color = vec3f(1.0, 1.0, 0.0);
     }
 
@@ -116,11 +116,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let res = raycast_octree(cam.pos, ray_dir);
 
-    if res.hit == 0u && res.iter == MAX_ITER {
+    if !res.hit && res.iter == MAX_ITER {
         return vec4f(1.0, 0.0, 0.0, 1.0);
     }
 
-    if res.hit != 0u {
+    if res.hit {
         let albedo = textureLoad(colors, res.voxel);
         var col = shade(albedo, cam.pos, res.pos, res.normal);
         // return col;
@@ -142,8 +142,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     else {
         var col = res.pos;
-        // col.b += f32(res.iter) / 100.0;
-        // col.g += f32(res.iter) / 200.0;
         return vec4f(col, 1.0);
     }
 }
