@@ -1,7 +1,8 @@
 // this module "requires":
-// const DVO_DEPTH: u32; // depth = 0 for a 2^3 volume.
-// const MIP_LAYERS: u32 // should be DVO_DEPTH+1
+// const OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume: depth = log2(n) - 1.
+// const OCTREE_MAX_ITER: u32 // max number of hit tests in the octree per ray.
 // const MSAA_LEVEL: u32 // msaa with 2^n probes, 0 to disable
+// const DEBUG_DISPLAY: u32 // display ray complexity instead of color
 
 @group(0) @binding(0)
 var<uniform> cam: Camera;
@@ -16,14 +17,12 @@ var dvo: texture_3d<u32>;
 var colors: texture_storage_3d<rgba8unorm, read>;
 
 // provide functions to access the dvo, so octree can use it in an agnostic way.
-const OCTREE_DEPTH = DVO_DEPTH;
-
 fn octree_node(octant_coord: vec3u, dvo_depth: u32) -> u32 {
     // let base_ptr = ((1u << 3u * dvo_depth) - 1u) / 7u;
     // let w = 1u << dvo_depth;
     // let octant_ptr = base_ptr + dot(octant_coord, vec3u(w * w, w, 1u));
     // return dvo[octant_ptr];
-    return textureLoad(dvo, octant_coord, i32(textureNumLevels(dvo) - 1u - dvo_depth)).r; // the cast to i32 is a bug in naga afaik
+    return textureLoad(dvo, octant_coord, i32(textureNumLevels(dvo) - 1u - dvo_depth)).r; // BUG: the cast to i32 is a bug in naga afaik
 }
 
 // preproc_include(octree.wgsl)
@@ -86,7 +85,7 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
 
     var shading_color = ambient_term + diffuse_term + specular_term;
 
-    if !res.hit && res.iter == MAX_ITER {
+    if !res.hit && res.iter == OCTREE_MAX_ITER {
         shading_color = vec3f(1.0, 1.0, 0.0);
     }
 
@@ -116,8 +115,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let res = raycast_octree(cam.pos, ray_dir);
 
-    if !res.hit && res.iter == MAX_ITER {
+    if !res.hit && res.iter == OCTREE_MAX_ITER {
         return vec4f(1.0, 0.0, 0.0, 1.0);
+    }
+
+    if DEBUG_DISPLAY == 1u {
+        let complexity = f32(res.iter) / f32(OCTREE_MAX_ITER);
+        if res.hit {
+            return vec4f(complexity, 0.0, 0.0, 1.0);
+        }
+        else {
+            return vec4f(0.0, complexity, 0.0, 1.0);
+        }
     }
 
     if res.hit {

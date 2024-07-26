@@ -45,8 +45,7 @@ struct State {
     egui_ctx: egui::Context,
     fps: FpsCounter,
 
-    dvo_depth: u32,
-    msaa_level: u32,
+    constants: ShaderConstants,
 }
 
 impl State {
@@ -118,7 +117,7 @@ impl State {
         let camera = Camera::new(glm::vec2(size.width as f32, size.height as f32));
         let lights = Lights::new(
             f32::to_degrees(glm::half_pi()),
-            f32::to_degrees(glm::half_pi()),
+            f32::to_degrees(glm::quarter_pi()),
         );
 
         let voxels = Voxels::new();
@@ -129,19 +128,24 @@ impl State {
         let egui_ctx = egui::Context::default();
         let fps = FpsCounter::new();
 
-        let dvo_depth = voxels.dim().ilog2() - 1;
-        let msaa_level = 1;
+        let constants = ShaderConstants {
+            octree_depth: voxels.dim().ilog2() - 1,
+            octree_max_iter: 100,
+            msaa_level: 1,
+            debug_display: 0,
+        };
 
         let wgpu_state = WgpuState::new(
             &device,
             &queue,
             &surface_config,
-            camera.as_bytes(),
-            lights.as_bytes(),
-            voxels.voxels_bytes(),
-            voxels.dim(),
-            voxels.colors_bytes(),
-            msaa_level,
+            &Buffers {
+                camera: camera.as_bytes(),
+                lights: lights.as_bytes(),
+                voxels: voxels.voxels_bytes(),
+                colors: voxels.colors_bytes(),
+            },
+            &constants,
         );
 
         {
@@ -168,8 +172,7 @@ impl State {
             egui_renderer,
             egui_ctx,
             fps,
-            dvo_depth,
-            msaa_level,
+            constants,
         }
     }
 
@@ -359,8 +362,7 @@ pub async fn run() {
                                     state.wgpu_state.reload_shaders(
                                         &state.device,
                                         &state.config,
-                                        state.dvo_depth,
-                                        state.msaa_level,
+                                        &state.constants,
                                     );
                                 } else {
                                     state.controller.process_keyboard(event);

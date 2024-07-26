@@ -21,29 +21,55 @@ pub(crate) struct WgpuState {
     compute_pipeline: ComputePipeline,
 }
 
+pub(crate) struct ShaderConstants {
+    pub octree_depth: u32,
+    pub octree_max_iter: u32,
+    pub msaa_level: u32,
+    pub debug_display: u32,
+}
+
+pub(crate) struct Buffers<'a> {
+    pub camera: &'a [u8],
+    pub lights: &'a [u8],
+    pub voxels: &'a [u8],
+    pub colors: &'a [u8],
+}
+
+impl ShaderConstants {
+    pub fn to_hashmap(&self) -> HashMap<String, String> {
+        HashMap::from([
+            ("OCTREE_DEPTH".to_owned(), format!("{}u", self.octree_depth)),
+            (
+                "OCTREE_MAX_ITER".to_owned(),
+                format!("{}u", self.octree_max_iter),
+            ),
+            ("MSAA_LEVEL".to_owned(), format!("{}u", self.msaa_level)),
+            (
+                "DEBUG_DISPLAY".to_owned(),
+                format!("{}u", self.debug_display),
+            ),
+        ])
+    }
+}
+
 impl WgpuState {
     pub(crate) fn new(
         device: &Device,
         queue: &Queue,
         surface_config: &SurfaceConfiguration,
-        camera_data: &[u8],
-        lights_data: &[u8],
-        voxels_data: &[u8],
-        dim: u32,
-        colors_data: &[u8],
-        msaa_level: u32,
+        buffers: &Buffers,
+        constants: &ShaderConstants,
     ) -> Self {
-        let dvo_depth = dim.ilog2() - 1;
-        let render_pipeline =
-            create_shader_pipeline(device, surface_config, dvo_depth, msaa_level).unwrap();
-        let compute_pipeline = create_compute_pipeline(device, dvo_depth).unwrap();
+        let dim = 2u32.pow(constants.octree_depth + 1);
+        let render_pipeline = create_shader_pipeline(device, surface_config, constants).unwrap();
+        let compute_pipeline = create_compute_pipeline(device, constants).unwrap();
 
-        let camera_buffer = create_camera_buffer(device, camera_data);
-        let lights_buffer = create_lights_buffer(device, lights_data);
+        let camera_buffer = create_camera_buffer(device, buffers.camera);
+        let lights_buffer = create_lights_buffer(device, buffers.lights);
         let dvo_texture = create_dvo_texture(device, dim);
-        let colors_texture = create_colors_texture(device, queue, dim, colors_data);
+        let colors_texture = create_colors_texture(device, queue, dim, buffers.colors);
         let vertex_buffer = create_vertex_buffer(device);
-        let voxels_texture = create_voxels_texture(device, queue, dim, voxels_data);
+        let voxels_texture = create_voxels_texture(device, queue, dim, buffers.voxels);
 
         let uniforms_bind_group = create_uniforms_bind_group(
             device,
@@ -170,15 +196,12 @@ impl WgpuState {
         &mut self,
         device: &Device,
         surface_config: &SurfaceConfiguration,
-        dvo_depth: u32,
-        msaa_level: u32,
+        constants: &ShaderConstants,
     ) {
-        if let Some(render_pipeline) =
-            create_shader_pipeline(device, surface_config, dvo_depth, msaa_level)
-        {
+        if let Some(render_pipeline) = create_shader_pipeline(device, surface_config, constants) {
             self.render_pipeline = render_pipeline;
         }
-        if let Some(compute_pipeline) = create_compute_pipeline(device, dvo_depth) {
+        if let Some(compute_pipeline) = create_compute_pipeline(device, constants) {
             self.compute_pipeline = compute_pipeline;
         }
     }
@@ -392,15 +415,11 @@ pub(crate) fn create_compute_bind_group(
 pub(crate) fn create_shader_pipeline(
     device: &Device,
     surface_config: &SurfaceConfiguration,
-    dvo_depth: u32,
-    msaa_level: u32,
+    constants: &ShaderConstants,
 ) -> Option<RenderPipeline> {
     let preproc_ctx = preproc::Context {
         main: "src/shader.wgsl".into(),
-        constants: HashMap::from([
-            ("DVO_DEPTH".to_owned(), format!("{dvo_depth}u")),
-            ("MSAA_LEVEL".to_owned(), format!("{msaa_level}u")),
-        ]),
+        constants: constants.to_hashmap(),
     };
     let shader_source = build_shader(&preproc_ctx).unwrap();
 
@@ -524,10 +543,13 @@ pub(crate) fn create_shader_pipeline(
     Some(render_pipeline)
 }
 
-fn create_compute_pipeline(device: &Device, dvo_depth: u32) -> Option<ComputePipeline> {
+fn create_compute_pipeline(
+    device: &Device,
+    constants: &ShaderConstants,
+) -> Option<ComputePipeline> {
     let preproc_ctx = preproc::Context {
         main: "src/compute.wgsl".into(),
-        constants: HashMap::from([("DVO_DEPTH".to_owned(), format!("{dvo_depth}u"))]),
+        constants: constants.to_hashmap(),
     };
     let shader_source = build_shader(&preproc_ctx).unwrap();
 

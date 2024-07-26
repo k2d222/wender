@@ -4,7 +4,8 @@
 // fn raycast_octree(ray_pos: vec3f, ray_dir: vec3f) -> CastResult
 // 
 // this module "requires":
-// const OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume.
+// const OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume: depth = log2(n) - 1.
+// const OCTREE_MAX_ITER: u32 // max number of hit tests in the octree per ray.
 // fn octree_node(octant_coord: vec3u, octree_depth: u32) -> u32
 
 // preproc_include(util.wgsl)
@@ -38,30 +39,35 @@ fn intersection(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
     return Intersect(t_min, t_max);
 }
 
-const MAX_ITER = 200u;
-
 fn no_hit(iter: u32) -> CastResult {
     return CastResult(vec3f(0.1), vec3f(0.0), vec3u(0u), iter, false);
 }
 
+// pack a vec3 of 0 or 1 (octant position), as 0b_1xyz
 fn pack_octant(octant: vec3u) -> u32 {
     return 8u | dot(octant, vec3u(4u, 2u, 1u));
 }
+
+// unpack 0b_1xyz (x,y,z are bits) into vec3(x, y, z)
 fn unpack_octant(index: u32) -> vec3u {
     return vec3u((index & 4u) >> 2u, (index & 2u) >> 1u, (index & 1u) >> 0u);
 }
 
+// read a node's octant
 fn is_solid(node: u32, octant: vec3u) -> bool {
     let octant_index = pack_octant(octant) & 7u;
     return bool(extractBits(node, octant_index, 1u));
 }
 
+// flip coordinates based on the mirror mask
 fn mirror_coord(node_coord: vec3u, depth: u32, mirror: vec3u) -> vec3u {
     let mirror_node_coord = mirror * ((1u << depth) - node_coord - 1u) + (1u - mirror) * node_coord;
     return mirror_node_coord;
 }
 
-// return a packed list of next octants
+// raycast a node to find the intersected octants.
+// returns a packed list of octants positions in a single u32:
+// the 4 lsb bits are the packed first octant hit, the next 4 bits the 2nd, etc.
 fn next_solid_octants(node_coord: vec3u, depth: u32, ray_pos: vec3f, side_dt: vec3f, mirror: vec3u) -> u32 {
     let voxels_per_octant = 1u << OCTREE_DEPTH - depth;
     let node_start_t = (vec3f((node_coord * 2u + vec3u(0u)) * voxels_per_octant) - ray_pos) * side_dt;
@@ -102,8 +108,9 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f) -> CastResult {
     var depth = 0u;
     var octants_stack = array<u32, (OCTREE_DEPTH + 1u)>();
 
-    // handle symmetries: ray is mirrored to go in the positive direction, use (coord ^ mirror) to find real positions.
-    // real position is only needed when sampling the octee: in octree_node() and is_solid.
+    // handle symmetries: ray is mirrored to go in the positive direction.
+    // use mirror_coord() to find un-mirrored positions.
+    // real position is needed when sampling the octree: in octree_node() and is_solid().
     let ray_dir = abs(ray_dir_);
     let mirror = vec3u(ray_dir_ < vec3f(0.0));
     let ray_pos = ray_pos_ * vec3f(1u - mirror) + (f32(2 << OCTREE_DEPTH) - ray_pos_) * vec3f(mirror);
@@ -112,7 +119,7 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f) -> CastResult {
     var node_coord = vec3u(0u);
     var next_octants = next_solid_octants(node_coord, depth, ray_pos, side_dt, mirror);
 
-    for (var i = 0u; i < MAX_ITER; i++) {
+    for (var i = 0u; i < OCTREE_MAX_ITER; i++) {
         if next_octants == 0u { // exited node, pop this octree level
             if depth == 0u { // completely out
                 return no_hit(i);
@@ -146,7 +153,7 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f) -> CastResult {
     }
 
     // end of iteration
-    return no_hit(MAX_ITER);
+    return no_hit(OCTREE_MAX_ITER);
 }
 
 fn raycast_octree(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
@@ -160,8 +167,6 @@ fn raycast_octree(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
     }
 
     else {
-        // TODO: 1000.0 avoids a numerical error, which idk where it comes from.
-        // return raycast_octree_impl(ray_pos - 1000.0 * ray_dir, ray_dir, max(t.t_min, 0.0) * octree_width + 1000.0);
         return raycast_octree_impl(ray_pos, ray_dir);
     }
 }

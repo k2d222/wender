@@ -72,8 +72,17 @@ pub fn run_egui(state: &mut State, egui_state: &mut egui_winit::State) -> egui::
         });
 
         egui::Window::new("Controls").show(&ctx, |ui| {
-            ui.add(egui::Slider::new(&mut state.dvo_depth, 0..=10).text("DVO depth"));
-            ui.add(egui::Slider::new(&mut state.msaa_level, 0..=4).text("MSAA level"));
+            ui.add(
+                egui::Slider::new(&mut state.constants.octree_depth, 0..=10).text("octree depth"),
+            );
+            ui.add(
+                egui::Slider::new(&mut state.constants.octree_max_iter, 0..=1000)
+                    .text("octree max iter"),
+            );
+            ui.add(
+                egui::Slider::new(&mut state.constants.debug_display, 0..=1).text("debug display"),
+            );
+            ui.add(egui::Slider::new(&mut state.constants.msaa_level, 0..=4).text("MSAA level"));
             ui.add(egui::Slider::new(&mut state.lights.angle, 0.0..=360.0).text("angle"));
             ui.add(egui::Slider::new(&mut state.lights.azimuth, 0.0..=90.0).text("azimuth"));
         });
