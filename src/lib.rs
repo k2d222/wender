@@ -128,11 +128,12 @@ impl State {
         let egui_ctx = egui::Context::default();
         let fps = FpsCounter::new();
 
+        let grid_depth = 2;
         let constants = ShaderConstants {
             octree_depth: voxels.dim().ilog2() - 1,
             octree_max_iter: 200,
-            grid_depth: 0,
-            grid_max_iter: 100,
+            grid_depth,
+            grid_max_iter: 2u32.pow(grid_depth) * 4,
             msaa_level: 1,
             debug_display: 0,
         };

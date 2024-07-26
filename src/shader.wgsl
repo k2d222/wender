@@ -30,10 +30,12 @@ fn is_octant_solid(node: u32, octant: vec3u) -> bool {
 }
 
 fn is_voxel_solid(voxel_coord: vec3u) -> bool {
-    let node_coord = voxel_coord / 2u;
-    let octant = voxel_coord - node_coord * 2u;
-    let node = textureLoad(dvo, voxel_coord, 0).r; // BUG: the cast to i32 is a bug in naga afaik
-    return is_octant_solid(node, octant);
+    let albedo = textureLoad(colors, voxel_coord);
+    return any(albedo != vec4f(0.0));
+    // let node_coord = voxel_coord / 2u;
+    // let octant = voxel_coord - node_coord * 2u;
+    // let node = textureLoad(dvo, voxel_coord, 0).r; // BUG: the cast to i32 is a bug in naga afaik
+    // return is_octant_solid(node, octant);
 }
 
 // preproc_include(octree.wgsl)
@@ -146,6 +148,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         var depth = 1.0 - saturate(res.t / max_t);
         depth = pow(depth, 2.0); // just to give more contrast to higher values
         return vec4f(vec3f(depth), 1.0);
+    }
+
+    // display normals
+    else if DEBUG_DISPLAY == 3u {
+        return vec4f(abs(res.normal) - 0.8 * -sign(res.normal), 1.0);
     }
 
     if res.hit {

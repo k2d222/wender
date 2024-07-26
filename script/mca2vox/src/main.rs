@@ -32,27 +32,27 @@ struct Args {
     #[clap(required = true)]
     block_textures: PathBuf,
 
-    /// X-coordinate of the chunk
+    /// X-coordinate of the start block
     #[clap(required = true)]
     s_x: isize,
 
-    /// Y-coordinate of the chunk
+    /// Y-coordinate of the start block
     #[clap(required = true)]
     s_y: isize,
 
-    /// Z-coordinate of the chunk
+    /// Z-coordinate of the start block
     #[clap(required = true)]
     s_z: isize,
 
-    /// X-coordinate of the chunk
+    /// X-coordinate of the end block
     #[clap(required = true)]
     e_x: isize,
 
-    /// Y-coordinate of the chunk
+    /// Y-coordinate of the end block
     #[clap(required = true)]
     e_y: isize,
 
-    /// Z-coordinate of the chunk
+    /// Z-coordinate of the end block
     #[clap(required = true)]
     e_z: isize,
 
@@ -201,7 +201,22 @@ fn run(args: &Args) -> (Array3<u32>, Vec<[u8; 4]>) {
 }
 
 fn main() {
-    let args: Args = Args::parse();
+    let mut args: Args = Args::parse();
+    let s_x = min(args.s_x, args.e_x);
+    let s_y = min(args.s_y, args.e_y);
+    let s_z = min(args.s_z, args.e_z);
+    args.e_x = max(args.s_x, args.e_x);
+    args.e_y = max(args.s_y, args.e_y);
+    args.e_z = max(args.s_z, args.e_z);
+    args.s_x = s_x;
+    args.s_y = s_y;
+    args.s_z = s_z;
+    println!(
+        "parsing a minecraft region of size ({}, {}, {})",
+        args.e_x - args.s_x + 1,
+        args.e_y - args.s_y + 1,
+        args.e_z - args.s_z + 1
+    );
     let out_file = File::create(&args.output_file).expect("failed to create output file");
     let mut out_file = BufWriter::new(out_file);
     let (voxels, palette) = run(&args);
