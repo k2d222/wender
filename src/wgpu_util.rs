@@ -24,6 +24,8 @@ pub(crate) struct WgpuState {
 pub(crate) struct ShaderConstants {
     pub octree_depth: u32,
     pub octree_max_iter: u32,
+    pub grid_depth: u32,
+    pub grid_max_iter: u32,
     pub msaa_level: u32,
     pub debug_display: u32,
 }
@@ -42,6 +44,11 @@ impl ShaderConstants {
             (
                 "OCTREE_MAX_ITER".to_owned(),
                 format!("{}u", self.octree_max_iter),
+            ),
+            ("GRID_DEPTH".to_owned(), format!("{}u", self.grid_depth)),
+            (
+                "GRID_MAX_ITER".to_owned(),
+                format!("{}u", self.grid_max_iter),
             ),
             ("MSAA_LEVEL".to_owned(), format!("{}u", self.msaa_level)),
             (

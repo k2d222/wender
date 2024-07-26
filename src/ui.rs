@@ -79,8 +79,13 @@ pub fn run_egui(state: &mut State, egui_state: &mut egui_winit::State) -> egui::
                 egui::Slider::new(&mut state.constants.octree_max_iter, 0..=1000)
                     .text("octree max iter"),
             );
+            ui.add(egui::Slider::new(&mut state.constants.grid_depth, 0..=10).text("grid depth"));
             ui.add(
-                egui::Slider::new(&mut state.constants.debug_display, 0..=1).text("debug display"),
+                egui::Slider::new(&mut state.constants.grid_max_iter, 0..=1000)
+                    .text("grid max iter"),
+            );
+            ui.add(
+                egui::Slider::new(&mut state.constants.debug_display, 0..=2).text("debug display"),
             );
             ui.add(egui::Slider::new(&mut state.constants.msaa_level, 0..=4).text("MSAA level"));
             ui.add(egui::Slider::new(&mut state.lights.angle, 0.0..=360.0).text("angle"));

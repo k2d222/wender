@@ -130,7 +130,9 @@ impl State {
 
         let constants = ShaderConstants {
             octree_depth: voxels.dim().ilog2() - 1,
-            octree_max_iter: 100,
+            octree_max_iter: 200,
+            grid_depth: 0,
+            grid_max_iter: 100,
             msaa_level: 1,
             debug_display: 0,
         };
