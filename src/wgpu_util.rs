@@ -1,6 +1,9 @@
 use nalgebra_glm as glm;
 use pollster::FutureExt;
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::str::FromStr;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
 
@@ -38,23 +41,14 @@ pub(crate) struct Buffers<'a> {
 }
 
 impl ShaderConstants {
-    pub fn to_hashmap(&self) -> HashMap<String, String> {
+    pub fn to_hashmap(&self) -> HashMap<String, f64> {
         HashMap::from([
-            ("OCTREE_DEPTH".to_owned(), format!("{}u", self.octree_depth)),
-            (
-                "OCTREE_MAX_ITER".to_owned(),
-                format!("{}u", self.octree_max_iter),
-            ),
-            ("GRID_DEPTH".to_owned(), format!("{}u", self.grid_depth)),
-            (
-                "GRID_MAX_ITER".to_owned(),
-                format!("{}u", self.grid_max_iter),
-            ),
-            ("MSAA_LEVEL".to_owned(), format!("{}u", self.msaa_level)),
-            (
-                "DEBUG_DISPLAY".to_owned(),
-                format!("{}u", self.debug_display),
-            ),
+            ("OCTREE_DEPTH".to_owned(), self.octree_depth as f64),
+            ("OCTREE_MAX_ITER".to_owned(), self.octree_max_iter as f64),
+            ("GRID_DEPTH".to_owned(), self.grid_depth as f64),
+            ("GRID_MAX_ITER".to_owned(), self.grid_max_iter as f64),
+            ("MSAA_LEVEL".to_owned(), self.msaa_level as f64),
+            ("DEBUG_DISPLAY".to_owned(), self.debug_display as f64),
         ])
     }
 }
@@ -236,6 +230,7 @@ pub(crate) fn create_colors_texture(
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         },
+        util::TextureDataOrder::LayerMajor,
         colors_data,
     );
 
@@ -331,6 +326,7 @@ pub(crate) fn create_voxels_texture(
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         },
+        util::TextureDataOrder::LayerMajor,
         voxels_data,
     );
 
@@ -424,28 +420,35 @@ pub(crate) fn create_shader_pipeline(
     surface_config: &SurfaceConfiguration,
     constants: &ShaderConstants,
 ) -> Option<RenderPipeline> {
+    let constants = constants.to_hashmap();
     let preproc_ctx = preproc::Context {
-        main: "src/shader.wgsl".into(),
-        constants: constants.to_hashmap(),
+        main: &PathBuf::from_str("src/shader.wgsl").unwrap(),
+        constants: &constants,
     };
-    let shader_source = build_shader(&preproc_ctx).unwrap();
+    let shader_module = match build_shader(&preproc_ctx) {
+        Ok(module) => module,
+        Err(err) => {
+            eprintln!("preproc error: {}", err);
+            return None;
+        }
+    };
 
     device.push_error_scope(ErrorFilter::Validation);
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("shader"),
-        source: ShaderSource::Wgsl(shader_source.into()),
+        // source: ShaderSource::Naga(Cow::Owned(shader_module)),
+        source: ShaderSource::Wgsl(Cow::Owned(shader_module)),
     });
 
     let err = device.pop_error_scope().block_on();
     match err {
         Some(err) => {
-            eprintln!("{}", err);
+            eprintln!("shader error: {}", err);
             return None;
         }
         None => println!("compiled render shader"),
     }
-
     let dvo_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("dvo bind group layout"),
         entries: &[
@@ -523,6 +526,10 @@ pub(crate) fn create_shader_pipeline(
                     format: VertexFormat::Float32x2,
                 }],
             }],
+            compilation_options: PipelineCompilationOptions {
+                constants: &constants,
+                ..Default::default()
+            },
         },
         fragment: Some(FragmentState {
             module: &shader,
@@ -535,6 +542,10 @@ pub(crate) fn create_shader_pipeline(
                 }),
                 write_mask: ColorWrites::ALL,
             })],
+            compilation_options: PipelineCompilationOptions {
+                constants: &constants,
+                ..Default::default()
+            },
         }),
         primitive: PrimitiveState {
             topology: PrimitiveTopology::TriangleList,
@@ -545,6 +556,7 @@ pub(crate) fn create_shader_pipeline(
         depth_stencil: None,
         multisample: Default::default(),
         multiview: None,
+        cache: None,
     });
 
     Some(render_pipeline)
@@ -554,23 +566,31 @@ fn create_compute_pipeline(
     device: &Device,
     constants: &ShaderConstants,
 ) -> Option<ComputePipeline> {
+    let constants = constants.to_hashmap();
     let preproc_ctx = preproc::Context {
-        main: "src/compute.wgsl".into(),
-        constants: constants.to_hashmap(),
+        main: &PathBuf::from_str("src/compute.wgsl").unwrap(),
+        constants: &constants,
     };
-    let shader_source = build_shader(&preproc_ctx).unwrap();
+
+    let shader_module = match build_shader(&preproc_ctx) {
+        Ok(module) => module,
+        Err(err) => {
+            eprintln!("preproc error: {}", err);
+            return None;
+        }
+    };
 
     device.push_error_scope(ErrorFilter::Validation);
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("compute"),
-        source: ShaderSource::Wgsl(shader_source.into()),
+        source: ShaderSource::Wgsl(Cow::Owned(shader_module)),
     });
 
     let err = device.pop_error_scope().block_on();
     match err {
         Some(err) => {
-            eprintln!("{}", err);
+            eprintln!("shader error: {}", err);
             return None;
         }
         None => println!("compiled compute shader"),
@@ -615,6 +635,11 @@ fn create_compute_pipeline(
         layout: Some(&pipeline_layout),
         module: &shader,
         entry_point: "cs_main",
+        compilation_options: PipelineCompilationOptions {
+            constants: &constants,
+            ..Default::default()
+        },
+        cache: None,
     });
 
     Some(compute_pipeline)

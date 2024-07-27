@@ -1,10 +1,10 @@
 // this module "requires":
 // const OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume: depth = log2(n) - 1.
-// const OCTREE_MAX_ITER: u32 // max number of hit tests in the octree per ray.
+// const OCTREE_MAX_ITER: u32; // max number of hit tests in the octree per ray.
 // const GRID_DEPTH: u32;
 // const GRID_MAX_ITER: u32;
-// const MSAA_LEVEL: u32 // msaa with 2^n probes, 0 to disable
-// const DEBUG_DISPLAY: u32 // display ray complexity instead of color
+// const MSAA_LEVEL: u32; // msaa with 2^n probes, 0 to disable
+// const DEBUG_DISPLAY: u32; // display ray complexity instead of color
 
 @group(0) @binding(0)
 var<uniform> cam: Camera;

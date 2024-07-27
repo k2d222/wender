@@ -5,7 +5,7 @@ mod ui;
 mod voxels;
 mod wgpu_util;
 
-use std::{iter, time::Duration};
+use std::{iter, sync::Arc, time::Duration};
 
 use ui::{run_egui, FpsCounter};
 use wgpu::util::DeviceExt;
@@ -27,14 +27,14 @@ use crate::lights::Lights;
 use crate::{voxels::Voxels, wgpu_util::*};
 
 struct State {
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     wgpu_state: WgpuState,
 
-    window: Window,
+    window: Arc<Window>,
     cursor_grabbed: bool,
 
     camera: Camera,
@@ -50,6 +50,7 @@ struct State {
 
 impl State {
     async fn new(window: Window) -> Self {
+        let window = Arc::new(window);
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -57,11 +58,7 @@ impl State {
             ..Default::default()
         });
 
-        // # Safety
-        //
-        // The surface needs to live as long as the window that created it.
-        // State owns the window so this should be safe.
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+        let surface = instance.create_surface(window.clone()).unwrap();
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -78,8 +75,8 @@ impl State {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
-                    limits: if cfg!(target_arch = "wasm32") {
+                    required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+                    required_limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_defaults()
                     } else {
                         // wgpu::Limits {
@@ -90,6 +87,7 @@ impl State {
                         // }
                         adapter.limits()
                     },
+                    memory_hints: wgpu::MemoryHints::Performance,
                 },
                 None, // trace_path
             )
@@ -109,9 +107,11 @@ impl State {
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::AutoVsync,
+            desired_maximum_frame_latency: 2,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
+
         surface.configure(&device, &surface_config);
 
         let camera = Camera::new(glm::vec2(size.width as f32, size.height as f32));
@@ -124,7 +124,8 @@ impl State {
 
         let controller = Controller::new();
 
-        let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1);
+        let egui_renderer =
+            egui_wgpu::Renderer::new(&device, surface_config.format, None, 1, false);
         let egui_ctx = egui::Context::default();
         let fps = FpsCounter::new();
 
@@ -161,14 +162,14 @@ impl State {
         }
 
         Self {
+            window,
+            cursor_grabbed: false,
             wgpu_state,
             surface,
             device,
             queue,
             size,
             config: surface_config,
-            window,
-            cursor_grabbed: false,
             camera,
             lights,
             controller,
@@ -228,7 +229,7 @@ impl State {
     ) {
         let egui_output = run_egui(self, egui_state);
 
-        let egui_screen = egui_wgpu::renderer::ScreenDescriptor {
+        let egui_screen = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [self.config.width, self.config.height],
             pixels_per_point: self.window.scale_factor() as f32,
         };

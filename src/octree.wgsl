@@ -109,7 +109,7 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f) -> CastResult {
     // real position is needed when sampling the octree: in octree_node() and is_octant_solid().
     let ray_dir = abs(ray_dir_);
     let mirror = vec3u(ray_dir_ < vec3f(0.0));
-    let ray_pos = ray_pos_ * vec3f(1u - mirror) + (f32(2 << OCTREE_DEPTH) - ray_pos_) * vec3f(mirror);
+    let ray_pos = ray_pos_ * vec3f(1u - mirror) + (f32(2u << OCTREE_DEPTH) - ray_pos_) * vec3f(mirror);
     let inv_dir = 1.0 / ray_dir; // time to traverse 1 voxel in each x,y,z
 
     var node_coord = vec3u(0u);
@@ -150,7 +150,7 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f) -> CastResult {
                     let t = res.t;
                     let pos = ray_pos_ + ray_dir_ * t;
                     let normal = res.normal * -sign(ray_dir_);
-                    return CastResult(pos, normal, res.voxel, i, t, true);
+                    return CastResult(pos, normal, res.voxel, i + res.iter, t, true);
                 }
             }
             else { // recurse, push current node to stack
@@ -193,7 +193,7 @@ fn raycast_grid_impl(ray_pos: vec3f, ray_dir: vec3f, t: f32, max_t: vec3f, mirro
 }
 
 fn raycast_octree(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
-    let scene_width = f32(2 << OCTREE_DEPTH);
+    let scene_width = f32(2u << OCTREE_DEPTH);
     let tr_pos = ray_pos / scene_width;
     var t = intersection(tr_pos, ray_dir);
 

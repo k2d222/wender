@@ -9,6 +9,7 @@ use std::{
 use itertools::Itertools;
 use regex::{Captures, Regex};
 use thiserror::Error;
+use wgpu::naga;
 
 /// a straightforward wgsl preprocessor.
 
@@ -16,11 +17,13 @@ use thiserror::Error;
 pub enum Error {
     #[error("Failed to read wgsl file: {0}")]
     IOError(PathBuf),
+    #[error("Naga error: {0}")]
+    NagaError(naga::front::wgsl::ParseError),
 }
 
-pub struct Context {
-    pub main: PathBuf,
-    pub constants: HashMap<String, String>,
+pub struct Context<'a> {
+    pub main: &'a Path,
+    pub constants: &'a HashMap<String, f64>,
 }
 
 pub fn build_shader(context: &Context) -> Result<String, Error> {
@@ -62,7 +65,7 @@ pub fn build_shader(context: &Context) -> Result<String, Error> {
     let constants = context
         .constants
         .iter()
-        .map(|(k, v)| format!("const {k} = {v};\n"))
+        .map(|(k, v)| format!("const {k} = {v}u;\n")) // BUG: It would be great to have AbstractInt type there, but naga is not there yet.
         .format("\n");
 
     let source = format!(
@@ -84,4 +87,11 @@ pub fn build_shader(context: &Context) -> Result<String, Error> {
     );
 
     Ok(source)
+
+    // let mut module = wgpu::naga::front::wgsl::parse_str(&source).map_err(Error::NagaError)?;
+    // for constant in module.constants.iter() {
+    //     println!("constant: {constant:?}");
+    // }
+
+    // Ok(module)
 }
