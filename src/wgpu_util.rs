@@ -7,7 +7,7 @@ use std::str::FromStr;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
 
-use crate::preproc::{self, build_shader};
+use crate::preproc::{self, preprocess_shader};
 
 pub(crate) struct WgpuState {
     pub camera_buffer: Buffer,
@@ -425,10 +425,10 @@ pub(crate) fn create_shader_pipeline(
         main: &PathBuf::from_str("src/shader.wgsl").unwrap(),
         constants: &constants,
     };
-    let shader_module = match build_shader(&preproc_ctx) {
+    let shader_module = match preprocess_shader(&preproc_ctx) {
         Ok(module) => module,
         Err(err) => {
-            eprintln!("preproc error: {}", err);
+            eprintln!("{}", err);
             return None;
         }
     };
@@ -438,7 +438,7 @@ pub(crate) fn create_shader_pipeline(
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("shader"),
         // source: ShaderSource::Naga(Cow::Owned(shader_module)),
-        source: ShaderSource::Wgsl(Cow::Owned(shader_module)),
+        source: ShaderSource::Naga(Cow::Owned(shader_module)),
     });
 
     let err = device.pop_error_scope().block_on();
@@ -449,6 +449,7 @@ pub(crate) fn create_shader_pipeline(
         }
         None => println!("compiled render shader"),
     }
+
     let dvo_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("dvo bind group layout"),
         entries: &[
@@ -556,7 +557,7 @@ pub(crate) fn create_shader_pipeline(
         depth_stencil: None,
         multisample: Default::default(),
         multiview: None,
-        cache: None,
+        // cache: None,
     });
 
     Some(render_pipeline)
@@ -572,7 +573,7 @@ fn create_compute_pipeline(
         constants: &constants,
     };
 
-    let shader_module = match build_shader(&preproc_ctx) {
+    let shader_module = match preprocess_shader(&preproc_ctx) {
         Ok(module) => module,
         Err(err) => {
             eprintln!("preproc error: {}", err);
@@ -584,7 +585,7 @@ fn create_compute_pipeline(
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("compute"),
-        source: ShaderSource::Wgsl(Cow::Owned(shader_module)),
+        source: ShaderSource::Naga(Cow::Owned(shader_module)),
     });
 
     let err = device.pop_error_scope().block_on();
@@ -639,7 +640,7 @@ fn create_compute_pipeline(
             constants: &constants,
             ..Default::default()
         },
-        cache: None,
+        // cache: None,
     });
 
     Some(compute_pipeline)

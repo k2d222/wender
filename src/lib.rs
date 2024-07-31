@@ -87,7 +87,7 @@ impl State {
                         // }
                         adapter.limits()
                     },
-                    memory_hints: wgpu::MemoryHints::Performance,
+                    // memory_hints: wgpu::MemoryHints::Performance,
                 },
                 None, // trace_path
             )
@@ -124,8 +124,7 @@ impl State {
 
         let controller = Controller::new();
 
-        let egui_renderer =
-            egui_wgpu::Renderer::new(&device, surface_config.format, None, 1, false);
+        let egui_renderer = egui_wgpu::Renderer::new(&device, surface_config.format, None, 1);
         let egui_ctx = egui::Context::default();
         let fps = FpsCounter::new();
 

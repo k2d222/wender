@@ -4,10 +4,6 @@ var voxels: texture_storage_3d<r8uint, read>;
 @group(0) @binding(1)
 var dvo: texture_storage_3d<r8uint, write>;
 
-fn vmax(vec: vec3u) -> u32 {
-    return max(max(vec.x, vec.y), vec.z);
-}
-
 fn pack_octants(octants: array<bool, 8>) -> u32 {
     return
         u32(octants[0]) << 0u |
@@ -25,8 +21,6 @@ fn pack_octants(octants: array<bool, 8>) -> u32 {
 fn cs_main(
     @builtin(global_invocation_id) index: vec3u
 ) {
-    var dim = textureDimensions(dvo).x; // current width of the octree layer
-
     let i2 = index * 2u;
     let octants = array(
         textureLoad(voxels, i2 + vec3(0u, 0u, 0u)).r != 0u,

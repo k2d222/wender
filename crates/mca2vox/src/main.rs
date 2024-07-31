@@ -22,7 +22,6 @@ use palette::{
     author = "Mathis Brossier",
     about = "Convert Minecraft chunks to MagicaVoxel .vox"
 )]
-
 struct Args {
     /// Path to the input Minecraft .mca file
     #[clap(required = true)]
