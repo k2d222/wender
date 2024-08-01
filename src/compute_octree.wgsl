@@ -1,8 +1,8 @@
 @group(0) @binding(0)
-var voxels: texture_storage_3d<r8uint, read>;
+var voxels: texture_storage_3d<r#{OCTREE_FORMAT}int, read>;
 
 @group(0) @binding(1)
-var dvo: texture_storage_3d<r8uint, write>;
+var dvo: texture_storage_3d<r#{OCTREE_FORMAT}int, write>;
 
 fn pack_octants(octants: array<bool, 8>) -> u32 {
     return

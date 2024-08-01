@@ -48,6 +48,10 @@ naga_oil = "0.14.0"
 #     "GpuComputePassTimestampWrite"
 # ]}
 
+[features]
+default = []
+byte_voxels = []
+
 [[bin]]
 name = "wender"
 path = "src/main.rs"

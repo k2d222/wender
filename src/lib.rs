@@ -12,8 +12,9 @@ use wgpu::util::DeviceExt;
 use winit::{
     dpi::LogicalSize,
     event::*,
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
     keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
+    platform::x11::EventLoopBuilderExtX11,
     window::{Window, WindowBuilder},
 };
 
@@ -54,7 +55,7 @@ impl State {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: wgpu::Backends::VULKAN,
             ..Default::default()
         });
 
@@ -69,6 +70,7 @@ impl State {
             .await
             .unwrap();
 
+        println!("{:#?}", adapter.get_info());
         println!("{:#?}", adapter.limits());
 
         let (device, queue) = adapter
@@ -286,7 +288,10 @@ pub async fn run() {
         }
     }
 
-    let event_loop = EventLoop::new().expect("failed to create event loop");
+    let event_loop = EventLoopBuilder::new()
+        .with_x11()
+        .build()
+        .expect("failed to create event loop");
     let window = WindowBuilder::new()
         .with_title("Wender")
         .with_inner_size(LogicalSize::new(800.0, 800.0))

@@ -3,9 +3,14 @@ use std::{fs::File, io::BufReader};
 use nalgebra_glm as glm;
 use ndarray::{s, Array3, Zip};
 
+#[cfg(byte_voxels)]
+pub type VoxelsFormat = u8;
+#[cfg(not(byte_voxels))]
+pub type VoxelsFormat = u32;
+
 #[derive(Debug)]
 pub struct Voxels {
-    voxels: Array3<u8>,
+    voxels: Array3<VoxelsFormat>,
     colors: Array3<glm::U8Vec4>,
 }
 
@@ -30,7 +35,7 @@ impl Voxels {
         let mut voxels = Array3::zeros((max_dim, max_dim, max_dim));
         voxels
             .slice_mut(s![..vox.dim().0, ..vox.dim().1, ..vox.dim().2])
-            .assign(&vox.mapv(|x| x as u8));
+            .assign(&vox.mapv(|x| x as VoxelsFormat));
         println!(
             "mem: {}B = {}MiB",
             voxels.len() * 4,

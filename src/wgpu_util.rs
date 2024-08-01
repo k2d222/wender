@@ -9,6 +9,14 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
 
 use crate::preproc::{self, preprocess_shader};
+use crate::voxels::VoxelsFormat;
+
+const OCTREE_FORMAT: TextureFormat = if cfg!(byte_voxels) {
+    TextureFormat::R8Uint
+} else {
+    TextureFormat::R32Uint
+};
+// const OCTREE_FORMAT = TextureFormat::R8Uint;
 
 pub(crate) struct WgpuState {
     pub camera_buffer: Buffer,
@@ -51,6 +59,10 @@ impl ShaderConstants {
             ("GRID_MAX_ITER".to_owned(), self.grid_max_iter as f64),
             ("MSAA_LEVEL".to_owned(), self.msaa_level as f64),
             ("DEBUG_DISPLAY".to_owned(), self.debug_display as f64),
+            (
+                "OCTREE_FORMAT".to_owned(),
+                (OCTREE_FORMAT.target_pixel_byte_cost().unwrap() * 8) as f64,
+            ),
         ])
     }
 }
@@ -247,17 +259,6 @@ impl WgpuState {
                 ..Default::default()
             });
 
-            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("mipmap sampler"),
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            });
-
             println!("compute mipmap, depth={depth}, dim={dim}");
             let bind_group = device.create_bind_group(&BindGroupDescriptor {
                 label: Some("mipmap bind group"),
@@ -269,10 +270,6 @@ impl WgpuState {
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: BindingResource::Sampler(&sampler),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
                         resource: BindingResource::TextureView(&output_view),
                     },
                 ],
@@ -384,7 +381,7 @@ pub(crate) fn create_octree_texture(device: &Device, dim: u32) -> Texture {
         mip_level_count: depth,
         sample_count: 1,
         dimension: TextureDimension::D3,
-        format: TextureFormat::R8Uint,
+        format: OCTREE_FORMAT,
         view_formats: &[],
     });
 
@@ -448,7 +445,7 @@ pub(crate) fn create_voxels_texture(
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D3,
-            format: TextureFormat::R8Uint,
+            format: OCTREE_FORMAT,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         },
@@ -702,7 +699,7 @@ fn create_octree_pipeline(device: &Device, constants: &ShaderConstants) -> Optio
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::StorageTexture {
                     access: StorageTextureAccess::ReadOnly,
-                    format: TextureFormat::R8Uint,
+                    format: OCTREE_FORMAT,
                     view_dimension: TextureViewDimension::D3,
                 },
                 count: None,
@@ -713,7 +710,7 @@ fn create_octree_pipeline(device: &Device, constants: &ShaderConstants) -> Optio
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::StorageTexture {
                     access: StorageTextureAccess::WriteOnly,
-                    format: TextureFormat::R8Uint,
+                    format: OCTREE_FORMAT,
                     view_dimension: TextureViewDimension::D3,
                 },
                 count: None,
@@ -777,23 +774,16 @@ fn create_mipmap_pipeline(device: &Device, constants: &ShaderConstants) -> Optio
                 // in_tex
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Texture {
-                    sample_type: TextureSampleType::Float { filterable: true },
+                ty: BindingType::StorageTexture {
+                    access: StorageTextureAccess::ReadOnly,
+                    format: TextureFormat::Rgba8Unorm,
                     view_dimension: TextureViewDimension::D3,
-                    multisampled: false,
                 },
                 count: None,
             },
             BindGroupLayoutEntry {
-                // sampler
-                binding: 1,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                count: None,
-            },
-            BindGroupLayoutEntry {
                 // out_tex
-                binding: 2,
+                binding: 1,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::StorageTexture {
                     access: StorageTextureAccess::WriteOnly,
