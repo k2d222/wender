@@ -156,7 +156,8 @@ impl State {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("compute encoder"),
             });
-            wgpu_state.compute(&device, &mut encoder, voxels.dim());
+            wgpu_state.compute_octree(&device, &mut encoder, voxels.dim());
+            wgpu_state.compute_mipmap(&device, &mut encoder, voxels.dim());
             queue.submit(iter::once(encoder.finish()));
         }
 

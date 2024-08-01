@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Write,
     fs::{self, File},
     path::{Path, PathBuf},
@@ -90,13 +90,17 @@ pub fn preprocess_shader(context: &Context) -> Result<naga::Module, Error> {
         fs::read_to_string(&context.main).map_err(|_| Error::IOError(context.main.to_owned()))?;
 
     let (name, imports, defines) = naga_oil::compose::get_preprocessor_data(&source);
+    let imports = imports
+        .into_iter()
+        .map(|import| import.import)
+        .collect::<HashSet<_>>();
 
     // oh don't mind me I'm just fighting the borrow checker here.
     // this is a for loop with early return on error.
     let err = imports.iter().find_map(|import| {
-        if import.import.starts_with('"') && import.import.ends_with('"') {
+        if import.starts_with('"') && import.ends_with('"') {
             let mut path = context.main.parent().unwrap().to_path_buf();
-            path.push(&import.import[1..import.import.len() - 1]);
+            path.push(&import[1..import.len() - 1]);
             let res = rec_preproc(&mut composer, &path, &defs);
             res.err()
         } else {

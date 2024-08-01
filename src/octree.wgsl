@@ -106,7 +106,7 @@ fn next_solid_octants(node_coord: vec3u, depth: u32, ray_pos: vec3f, inv_dir: ve
     let voxels_per_octant = 1u << #OCTREE_DEPTH - depth;
     let node_start_t = (vec3f((node_coord * 2u + 0u) * voxels_per_octant) - ray_pos) * inv_dir;
     let node_mid_t   = (vec3f((node_coord * 2u + 1u) * voxels_per_octant) - ray_pos) * inv_dir;
-    var octant = vec3u(node_mid_t < vec3f(0.0) || vec3f(vmax(node_start_t)) > node_mid_t);
+    var octant = vec3u(node_mid_t < vec3f(0.0) | vec3f(vmax(node_start_t)) > node_mid_t);
 
     var incr_t = node_mid_t + vec3f(octant) * inv_dir * f32(voxels_per_octant);
 

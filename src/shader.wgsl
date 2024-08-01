@@ -23,11 +23,11 @@ struct Lights {
 }
 
 struct VertexInput {
-    @location(0) position: vec2f,
+    @location(0) pos: vec2f,
 }
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4f,
+    @builtin(position) clip_pos: vec4f,
     @location(0) pos: vec2f,
 }
 
@@ -46,14 +46,11 @@ var<uniform> lights: Lights;
 // preproc_include(octree.wgsl)
 
 @vertex
-fn vs_main(
-    @builtin(vertex_index) index: u32,
-    vert: VertexInput,
-) -> VertexOutput {
+fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
-    out.pos = vert.position;
-    out.clip_position = vec4f(out.pos, 0.0, 1.0);
+    out.pos = in.pos;
+    out.clip_pos = vec4f(out.pos, 0.0, 1.0);
 
     return out;
 }
@@ -163,5 +160,4 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         var col = res.pos;
         return vec4f(col, 1.0);
     }
-    return vec4f(1.0);
 }

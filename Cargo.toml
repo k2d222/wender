@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/mca2vox"]
+exclude = ["crates/naga_oil_cli"]
 
 [package]
 name = "wender"
