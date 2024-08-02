@@ -1,6 +1,7 @@
-#import "octree.wgsl"::{
-    raycast, colors, dvo
-}
+#import "octree.wgsl"::{ raycast }
+
+#import "conetrace.wgsl"::{ trace_ao, trace_shadow }
+#import "bindings.wgsl"::{ colors, dvo }
 
 // this module "requires":
 // const OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume: depth = log2(n) - 1.
@@ -56,7 +57,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 }
 
 fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> vec4f {
-    let ambient_color = albedo.rgb * 0.01;
+    let ambient_color = albedo.rgb * 0.1;
     let diffuse_color = pow(albedo.rgb, vec3f(2.2));
     let specular_color = vec3f(1.0, 1.0, 1.0) * 0.1;
     let shininess = 16.0;
@@ -65,23 +66,34 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
     let light_dir = lights.sun_dir;
     let half_vector = normalize(light_dir + view_dir);
 
-    let res = raycast(hit_pos + light_dir * 0.001, light_dir);
-
     var ambient_term = ambient_color;
     var diffuse_term = max(dot(hit_normal, light_dir), 0.0) * diffuse_color;
     var specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color;
 
-    if res.hit {
-     ambient_term *= 2.0;
-     diffuse_term *= 0.1;
-     specular_term *= 0.1;
+    if (#AO_STRENGTH != 0u) {
+        let ao = trace_ao(hit_pos, hit_normal);
+        let strength = f32(#AO_STRENGTH) / 10.0;
+        ambient_term *= (1.0 - ao * strength);
     }
+
+    if (#SHADOW_STRENGTH != 0u) {
+        let shadow = trace_shadow(hit_pos, light_dir);
+        let strength = f32(#SHADOW_STRENGTH) / 10.0;
+        diffuse_term *= (1.0 - shadow * strength);
+        specular_term *= (1.0 - shadow * strength);
+    }
+    // ambient_term *= 2.0 * 
+    // if res.hit {
+    //  ambient_term *= 2.0;
+    //  diffuse_term *= 0.1;
+    //  specular_term *= 0.1;
+    // }
 
     var shading_color = ambient_term + diffuse_term + specular_term;
 
-    if !res.hit && res.iter == #OCTREE_MAX_ITER {
-        shading_color = vec3f(1.0, 1.0, 0.0);
-    }
+    // if !res.hit && res.iter == #OCTREE_MAX_ITER {
+    //     shading_color = vec3f(1.0, 1.0, 0.0);
+    // }
 
     return vec4f(saturate(shading_color), 1.0);
 }
@@ -137,7 +149,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     }
 
     if res.hit {
-        let albedo = textureLoad(colors, res.voxel);
+        let albedo = textureLoad(colors, res.voxel, 0);
         var col = shade(albedo, cam.pos, res.pos, res.normal);
         // return col;
 
@@ -148,7 +160,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
                 let jitter = pos / cam.size;
                 let ray_dir = cam_ray_dir(in.pos + jitter);
                 let res = raycast(cam.pos, ray_dir);
-                let albedo = textureLoad(colors, res.voxel);
+                let albedo = textureLoad(colors, res.voxel, 0);
                 col += shade(albedo, cam.pos, res.pos, res.normal);
             }
         }

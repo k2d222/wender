@@ -39,6 +39,10 @@ pub(crate) struct ShaderConstants {
     pub octree_max_iter: u32,
     pub grid_depth: u32,
     pub grid_max_iter: u32,
+    pub shadow_max_iter: u32,
+    pub shadow_cone_angle: u32,
+    pub shadow_strength: u32,
+    pub ao_strength: u32,
     pub msaa_level: u32,
     pub debug_display: u32,
 }
@@ -57,6 +61,13 @@ impl ShaderConstants {
             ("OCTREE_MAX_ITER".to_owned(), self.octree_max_iter as f64),
             ("GRID_DEPTH".to_owned(), self.grid_depth as f64),
             ("GRID_MAX_ITER".to_owned(), self.grid_max_iter as f64),
+            ("SHADOW_MAX_ITER".to_owned(), self.shadow_max_iter as f64),
+            (
+                "SHADOW_CONE_ANGLE".to_owned(),
+                self.shadow_cone_angle as f64,
+            ),
+            ("SHADOW_STRENGTH".to_owned(), self.shadow_strength as f64),
+            ("AO_STRENGTH".to_owned(), self.ao_strength as f64),
             ("MSAA_LEVEL".to_owned(), self.msaa_level as f64),
             ("DEBUG_DISPLAY".to_owned(), self.debug_display as f64),
             (
@@ -498,6 +509,14 @@ pub(crate) fn create_octree_bind_group(
         ..Default::default()
     });
 
+    let sampler = device.create_sampler(&SamplerDescriptor {
+        label: Some("colors sampler"),
+        mag_filter: FilterMode::Linear,
+        min_filter: FilterMode::Linear,
+        mipmap_filter: FilterMode::Linear,
+        ..Default::default()
+    });
+
     let octree_bind_group = device.create_bind_group(&BindGroupDescriptor {
         label: Some("octree bind group"),
         layout: &bind_group_layout,
@@ -509,6 +528,10 @@ pub(crate) fn create_octree_bind_group(
             BindGroupEntry {
                 binding: 1,
                 resource: BindingResource::TextureView(&colors_view),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::Sampler(&sampler),
             },
         ],
     });
@@ -570,11 +593,18 @@ pub(crate) fn create_shader_pipeline(
                 // colors
                 binding: 1,
                 visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::StorageTexture {
-                    access: StorageTextureAccess::ReadOnly,
-                    format: TextureFormat::Rgba8Unorm,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
                     view_dimension: TextureViewDimension::D3,
+                    multisampled: false,
                 },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                // sampler
+                binding: 2,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
         ],

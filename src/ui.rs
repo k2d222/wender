@@ -85,6 +85,19 @@ pub fn run_egui(state: &mut State, egui_state: &mut egui_winit::State) -> egui::
                     .text("grid max iter"),
             );
             ui.add(
+                egui::Slider::new(&mut state.constants.shadow_max_iter, 0..=1000)
+                    .text("shadow max iter"),
+            );
+            ui.add(
+                egui::Slider::new(&mut state.constants.shadow_cone_angle, 0..=180)
+                    .text("shadow cone angle"),
+            );
+            ui.add(
+                egui::Slider::new(&mut state.constants.shadow_strength, 0..=20)
+                    .text("shadow strength"),
+            );
+            ui.add(egui::Slider::new(&mut state.constants.ao_strength, 0..=20).text("ao strength"));
+            ui.add(
                 egui::Slider::new(&mut state.constants.debug_display, 0..=3).text("debug display"),
             );
             ui.add(egui::Slider::new(&mut state.constants.msaa_level, 0..=4).text("MSAA level"));

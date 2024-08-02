@@ -136,6 +136,10 @@ impl State {
             octree_max_iter: 200,
             grid_depth,
             grid_max_iter: 2u32.pow(grid_depth) * 4,
+            shadow_max_iter: 100,
+            shadow_cone_angle: 1,
+            shadow_strength: 10,
+            ao_strength: 10,
             msaa_level: 1,
             debug_display: 0,
         };

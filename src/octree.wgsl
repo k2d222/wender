@@ -1,4 +1,5 @@
-#import "util.wgsl"::{vmin, vmax, cmpmin, cmpmax}
+#import "util.wgsl"::{ vmin, vmax, cmpmin, cmpmax }
+#import "bindings.wgsl"::{ colors, dvo }
 
 // this shader is a "module" supposed to be included.
 // 
@@ -23,12 +24,6 @@
 
 // virtual fn is_voxel_solid(voxel_coord: vec3u) -> bool { return true; }
 
-@group(1) @binding(0)
-var dvo: texture_3d<u32>;
-
-@group(1) @binding(1)
-var colors: texture_storage_3d<rgba8unorm, read>;
-
 // provide functions to access the dvo, so octree can use it in an agnostic way.
 fn get_node(octant_coord: vec3u, octree_depth: u32) -> u32 {
     return textureLoad(dvo, octant_coord, i32(textureNumLevels(dvo) - 1u - octree_depth)).r; // BUG: the cast to i32 is a bug in naga afaik
@@ -41,7 +36,7 @@ fn is_octant_solid(node: u32, octant: vec3u) -> bool {
 }
 
 fn is_voxel_solid(voxel_coord: vec3u) -> bool {
-    let albedo = textureLoad(colors, voxel_coord);
+    let albedo = textureLoad(colors, voxel_coord, 0);
     return any(albedo != vec4f(0.0));
     // let node_coord = voxel_coord / 2u;
     // let octant = voxel_coord - node_coord * 2u;
