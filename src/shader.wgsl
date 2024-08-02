@@ -77,10 +77,12 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
     }
 
     if (#SHADOW_STRENGTH != 0u) {
+        let soft_dist = 5.0;
+        let soft_falloff = 0.2;
         let res = raycast(hit_pos + light_dir * 0.001, light_dir);
         let hard_shadow = f32(res.hit);
-        let soft_shadow = trace_shadow(hit_pos, light_dir);
-        let hard_decay = 1.0 - clamp((res.t - 12.0) * 0.5, 0.0, 1.0);
+        let soft_shadow = trace_shadow(hit_pos, light_dir, soft_dist);
+        let hard_decay = 1.0 - clamp((res.t - soft_dist) * soft_falloff, 0.0, 1.0);
         let t = hard_shadow * hard_decay;
         let shadow = mix(soft_shadow, hard_shadow, t);
         let strength = f32(#SHADOW_STRENGTH) / 10.0;
