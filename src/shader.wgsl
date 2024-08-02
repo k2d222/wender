@@ -77,23 +77,19 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
     }
 
     if (#SHADOW_STRENGTH != 0u) {
-        let shadow = trace_shadow(hit_pos, light_dir);
+        let res = raycast(hit_pos + light_dir * 0.001, light_dir);
+        let hard_shadow = f32(res.hit);
+        let soft_shadow = trace_shadow(hit_pos, light_dir);
+        let hard_decay = 1.0 - clamp((res.t - 12.0) * 0.5, 0.0, 1.0);
+        let t = hard_shadow * hard_decay;
+        let shadow = mix(soft_shadow, hard_shadow, t);
         let strength = f32(#SHADOW_STRENGTH) / 10.0;
+
         diffuse_term *= (1.0 - shadow * strength);
         specular_term *= (1.0 - shadow * strength);
     }
-    // ambient_term *= 2.0 * 
-    // if res.hit {
-    //  ambient_term *= 2.0;
-    //  diffuse_term *= 0.1;
-    //  specular_term *= 0.1;
-    // }
 
     var shading_color = ambient_term + diffuse_term + specular_term;
-
-    // if !res.hit && res.iter == #OCTREE_MAX_ITER {
-    //     shading_color = vec3f(1.0, 1.0, 0.0);
-    // }
 
     return vec4f(saturate(shading_color), 1.0);
 }

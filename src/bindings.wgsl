@@ -5,5 +5,8 @@ var dvo: texture_3d<u32>;
 var colors: texture_3d<f32>;
 
 @group(1) @binding(2)
-var colors_sampler: sampler;
+var linear_sampler: sampler;
+
+@group(1) @binding(3)
+var nearest_sampler: sampler;
 

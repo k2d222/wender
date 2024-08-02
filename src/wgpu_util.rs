@@ -509,9 +509,17 @@ pub(crate) fn create_octree_bind_group(
         ..Default::default()
     });
 
-    let sampler = device.create_sampler(&SamplerDescriptor {
-        label: Some("colors sampler"),
+    let linear_sampler = device.create_sampler(&SamplerDescriptor {
+        label: Some("linear sampler"),
         mag_filter: FilterMode::Linear,
+        min_filter: FilterMode::Linear,
+        mipmap_filter: FilterMode::Linear,
+        ..Default::default()
+    });
+
+    let nearest_sampler = device.create_sampler(&SamplerDescriptor {
+        label: Some("nearest sampler"),
+        mag_filter: FilterMode::Nearest,
         min_filter: FilterMode::Linear,
         mipmap_filter: FilterMode::Linear,
         ..Default::default()
@@ -531,7 +539,11 @@ pub(crate) fn create_octree_bind_group(
             },
             BindGroupEntry {
                 binding: 2,
-                resource: BindingResource::Sampler(&sampler),
+                resource: BindingResource::Sampler(&linear_sampler),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: BindingResource::Sampler(&nearest_sampler),
             },
         ],
     });
@@ -601,8 +613,15 @@ pub(crate) fn create_shader_pipeline(
                 count: None,
             },
             BindGroupLayoutEntry {
-                // sampler
+                // linear_sampler
                 binding: 2,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                // nearest_sampler
+                binding: 3,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
