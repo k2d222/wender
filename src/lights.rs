@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use nalgebra_glm as glm;
 
 // !! careful with the alignments! add padding fields if necessary.
@@ -6,13 +8,14 @@ use nalgebra_glm as glm;
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LightsUniform {
     pub sun_dir: glm::Vec3,
-    _pad: [f32; 1], // padding to ensure correct alignment
+    pub time: f32, // seconds
 }
 
 pub struct Lights {
     pub uniform: LightsUniform,
     pub angle: f32,   // degrees
     pub azimuth: f32, // degrees
+    pub speed: f32,   // in x/seconds
 }
 
 fn from_angle_azimuth(angle: f32, azimuth: f32) -> glm::Vec3 {
@@ -31,15 +34,18 @@ impl Lights {
         Self {
             uniform: LightsUniform {
                 sun_dir: from_angle_azimuth(angle, azimuth),
-                _pad: Default::default(),
+                time: 0.0,
             },
             angle,
             azimuth,
+            speed: 1.0,
         }
     }
 
-    pub fn update(&mut self) {
-        self.uniform.sun_dir = from_angle_azimuth(self.angle, self.azimuth)
+    pub fn update(&mut self, t: Duration) {
+        self.uniform.time = t.as_secs_f32() * self.speed;
+        self.uniform.sun_dir =
+            from_angle_azimuth(self.angle + self.uniform.time * self.speed, self.azimuth);
     }
 
     pub fn as_bytes(&self) -> &[u8] {

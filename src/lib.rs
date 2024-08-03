@@ -5,7 +5,11 @@ mod ui;
 mod voxels;
 mod wgpu_util;
 
-use std::{iter, sync::Arc, time::Duration};
+use std::{
+    iter,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use ui::{run_egui, FpsCounter};
 use wgpu::util::DeviceExt;
@@ -45,6 +49,7 @@ struct State {
     egui_renderer: egui_wgpu::Renderer,
     egui_ctx: egui::Context,
     fps: FpsCounter,
+    last_frame: Instant,
 
     constants: ShaderConstants,
 }
@@ -182,6 +187,7 @@ impl State {
             egui_renderer,
             egui_ctx,
             fps,
+            last_frame: Instant::now(),
             constants,
         }
     }
@@ -198,8 +204,10 @@ impl State {
     }
 
     fn update(&mut self) {
+        let now = Instant::now();
+        let dt = now.duration_since(self.last_frame);
         self.controller.update_camera(&mut self.camera);
-        self.lights.update();
+        self.lights.update(dt);
     }
 
     fn render(&mut self, egui_state: &mut egui_winit::State) -> Result<(), wgpu::SurfaceError> {

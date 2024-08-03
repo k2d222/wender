@@ -90,6 +90,12 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
         diffuse_term *= (1.0 - shadow * strength);
         specular_term *= (1.0 - shadow * strength);
     }
+    else {
+        let res = raycast(hit_pos + light_dir * 0.001, light_dir);
+        let hard_shadow = f32(res.hit);
+        diffuse_term *= (1.0 - hard_shadow);
+        specular_term *= (1.0 - hard_shadow);
+    }
 
     var shading_color = ambient_term + diffuse_term + specular_term;
 

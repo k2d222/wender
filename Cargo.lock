@@ -1387,9 +1387,11 @@ dependencies = [
  "fastanvil",
  "image 0.24.9",
  "itertools",
+ "lazy_static",
  "nalgebra",
  "ndarray",
  "palette",
+ "regex",
 ]
 
 [[package]]
