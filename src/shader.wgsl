@@ -1,4 +1,4 @@
-#import "octree.wgsl"::{ raycast }
+#import "octree.wgsl"::{ raycast, is_hit }
 
 #import "conetrace.wgsl"::{ trace_ao, trace_shadow }
 #import "bindings.wgsl"::{ colors, dvo }
@@ -79,10 +79,10 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
     if (#SHADOW_STRENGTH != 0u) {
         let soft_dist = 5.0;
         let soft_falloff = 0.2;
-        let res = raycast(hit_pos + light_dir * 0.001, light_dir);
-        let hard_shadow = f32(res.hit);
+        let hit = raycast(hit_pos + light_dir * 0.001, light_dir);
+        let hard_shadow = f32(is_hit(hit));
         let soft_shadow = trace_shadow(hit_pos, light_dir, soft_dist);
-        let hard_decay = 1.0 - clamp((res.t - soft_dist) * soft_falloff, 0.0, 1.0);
+        let hard_decay = 1.0 - clamp((hit.t - soft_dist) * soft_falloff, 0.0, 1.0);
         let t = hard_shadow * hard_decay;
         let shadow = mix(soft_shadow, hard_shadow, t);
         let strength = f32(#SHADOW_STRENGTH) / 10.0;
@@ -91,8 +91,8 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
         specular_term *= (1.0 - shadow * strength);
     }
     else {
-        let res = raycast(hit_pos + light_dir * 0.001, light_dir);
-        let hard_shadow = f32(res.hit);
+        let hit = raycast(hit_pos + light_dir * 0.001, light_dir);
+        let hard_shadow = f32(is_hit(hit));
         diffuse_term *= (1.0 - hard_shadow);
         specular_term *= (1.0 - hard_shadow);
     }
@@ -100,6 +100,10 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
     var shading_color = ambient_term + diffuse_term + specular_term;
 
     return vec4f(saturate(shading_color), 1.0);
+}
+
+fn shade_sky(ray_dir: vec3f) -> vec4f {
+    return vec4f(0.0);
 }
 
 // is pos is on a cube surface, returns the normal of the corresponding cube face.
@@ -123,15 +127,15 @@ fn cam_ray_dir(pos: vec2f) -> vec3f {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let ray_dir = cam_ray_dir(in.pos);
 
-    let res = raycast(cam.pos, ray_dir);
+    let hit = raycast(cam.pos, ray_dir);
 
     // display ray complexity
     if #DEBUG_DISPLAY == 1u {
-        let complexity = f32(res.iter) / f32(#OCTREE_MAX_ITER);
-        if res.iter == #OCTREE_MAX_ITER {
+        let complexity = f32(hit.iter) / f32(#OCTREE_MAX_ITER);
+        if hit.iter == #OCTREE_MAX_ITER {
             return vec4f(0.0, 0.0, 1.0, 1.0);
         }
-        else if res.hit {
+        else if is_hit(hit) {
             return vec4f(complexity, 0.0, 0.0, 1.0);
         }
         else {
@@ -142,19 +146,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // display depth buffer
     else if #DEBUG_DISPLAY == 2u {
         let max_t = f32(1u << textureNumLevels(dvo));
-        var depth = 1.0 - saturate(res.t / max_t);
+        var depth = 1.0 - saturate(hit.t / max_t);
         depth = pow(depth, 2.0); // just to give more contrast to higher values
         return vec4f(vec3f(depth), 1.0);
     }
 
     // display normals
     else if #DEBUG_DISPLAY == 3u {
-        return vec4f(abs(res.normal) - 0.8 * -sign(res.normal), 1.0);
+        return vec4f(abs(hit.normal) - 0.8 * -sign(hit.normal), 1.0);
     }
 
-    if res.hit {
-        let albedo = textureLoad(colors, res.voxel, 0);
-        var col = shade(albedo, cam.pos, res.pos, res.normal);
+    if is_hit(hit) {
+        let albedo = textureLoad(colors, hit.voxel, 0);
+        var col = shade(albedo, cam.pos, hit.pos, hit.normal);
         // return col;
 
         // MSAA
@@ -163,17 +167,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
                 let pos = (2.0 * (vec2f(f32(i), f32(j)) - f32(#MSAA_LEVEL)) - 1.0) / (4.0 * f32(#MSAA_LEVEL * #MSAA_LEVEL) - 1.0);
                 let jitter = pos / cam.size;
                 let ray_dir = cam_ray_dir(in.pos + jitter);
-                let res = raycast(cam.pos, ray_dir);
-                let albedo = textureLoad(colors, res.voxel, 0);
-                col += shade(albedo, cam.pos, res.pos, res.normal);
+                let hit = raycast(cam.pos, ray_dir);
+                let albedo = textureLoad(colors, hit.voxel, 0);
+                col += shade(albedo, cam.pos, hit.pos, hit.normal);
             }
         }
 
         return col / (1.0 + f32(#MSAA_LEVEL * #MSAA_LEVEL * 4u));
     }
 
-    else {
-        var col = res.pos;
-        return vec4f(col, 1.0);
-    }
+    // else {
+    //     var col = hit.pos;
+    //     return vec4f(col, 1.0);
+    // }
+    return shade_sky(ray_dir);
 }

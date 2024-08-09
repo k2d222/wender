@@ -514,6 +514,10 @@ pub(crate) fn create_octree_bind_group(
         mag_filter: FilterMode::Linear,
         min_filter: FilterMode::Linear,
         mipmap_filter: FilterMode::Linear,
+        address_mode_u: AddressMode::ClampToBorder,
+        address_mode_v: AddressMode::ClampToBorder,
+        address_mode_w: AddressMode::ClampToBorder,
+        border_color: Some(SamplerBorderColor::TransparentBlack),
         ..Default::default()
     });
 
@@ -522,6 +526,10 @@ pub(crate) fn create_octree_bind_group(
         mag_filter: FilterMode::Nearest,
         min_filter: FilterMode::Linear,
         mipmap_filter: FilterMode::Linear,
+        address_mode_u: AddressMode::ClampToBorder,
+        address_mode_v: AddressMode::ClampToBorder,
+        address_mode_w: AddressMode::ClampToBorder,
+        border_color: Some(SamplerBorderColor::TransparentBlack),
         ..Default::default()
     });
 

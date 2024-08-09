@@ -82,7 +82,8 @@ impl State {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+                    required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+                        | wgpu::Features::ADDRESS_MODE_CLAMP_TO_BORDER,
                     required_limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_defaults()
                     } else {

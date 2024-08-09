@@ -1,4 +1,5 @@
 #import "bindings.wgsl"::{ colors, linear_sampler, nearest_sampler }
+#import "octree.wgsl"::{ intersection }
 
 fn conetrace(ray_pos: vec3f, ray_dir: vec3f, tan_angle: f32, start_dist: f32, max_dist: f32) -> vec4f {
     var res = vec4f(0.0);
@@ -30,9 +31,11 @@ fn cone_spread(cone_angle: f32) -> f32 {
 }
 
 fn trace_shadow(ray_pos: vec3f, ray_dir: vec3f, start_dist: f32) -> f32 {
+    let scene_width = f32(2u << #OCTREE_DEPTH);
+    let bounds = intersection(ray_pos, ray_dir, scene_width);
+
     let shadow_spread = cone_spread(f32(#SHADOW_CONE_ANGLE));
-    let max_dist = 1000.0;
-    let sample = conetrace(ray_pos, ray_dir, shadow_spread, start_dist, max_dist);
+    let sample = conetrace(ray_pos, ray_dir, shadow_spread, start_dist, bounds.t_max);
     return sample.a;
 }
 

@@ -44,13 +44,53 @@ fn is_voxel_solid(voxel_coord: vec3u) -> bool {
     // return is_octant_solid(node, octant);
 }
 
-struct CastResult {
+struct Ray {
     pos: vec3f,
+    dir: vec3f,
+    inv_dir: vec3f,
+    bounds: Intersect,
+    mirror: vec3u,
+}
+
+struct Hit {
+    pos: vec3f,
+    voxel: vec3u,
     normal: vec3f,
-    voxel:vec3u,
     iter: u32,
     t: f32,
-    hit: bool,
+}
+
+fn is_hit(hit: Hit) -> bool {
+    return hit.t >= 0.0;
+}
+
+fn no_hit(iter: u32) -> Hit {
+    var hit: Hit;
+    hit.t = -1.0;
+    return hit;
+}
+
+struct CastRes {
+    iter: u32,
+    voxel: vec3u,
+    normal: vec3f,
+    bounds: Intersect,
+}
+
+fn is_res(res: CastRes) -> bool {
+    return res.bounds.t_min >= 0.0;
+}
+
+// fn no_res(iter: u32) -> CastRes {
+//     var res: CastRes;
+//     res.bounds.t_min = -1.0;
+//     res.iter = iter;
+//     return res;
+// }
+
+fn no_res(iter: u32, res: ptr<function, CastRes>) {
+    (*res).bounds.t_min = -1.0;
+    (*res).iter = iter;
 }
 
 struct Intersect {
@@ -60,7 +100,7 @@ struct Intersect {
 
 // intersection with a unit aabb cube with one corner at (0,0,0) and the other at (1,1,1).
 // returns time to intersection. There was no intersection if t_min > t_max or t_max < 0.
-fn intersection(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
+fn unit_intersection(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
     let inv_dir = 1.0 / ray_dir;
 
     let t1 = (0.0 - ray_pos) * inv_dir;
@@ -74,8 +114,12 @@ fn intersection(ray_pos: vec3f, ray_dir: vec3f) -> Intersect {
     return Intersect(t_min, t_max);
 }
 
-fn no_hit(iter: u32) -> CastResult {
-    return CastResult(vec3f(0.1), vec3f(0.0), vec3u(0u), iter, 0.0, false);
+fn intersection(ray_pos: vec3f, ray_dir: vec3f, box_size: f32) -> Intersect {
+    let tr_pos = ray_pos / box_size;
+    var t = unit_intersection(tr_pos, ray_dir);
+    t.t_min *= box_size;
+    t.t_max *= box_size;
+    return t;
 }
 
 // pack a vec3 of 0 or 1 (octant position), as 0b_1xyz
@@ -97,34 +141,34 @@ fn mirror_coord(node_coord: vec3u, depth: u32, mirror: vec3u) -> vec3u {
 // raycast a node to find the intersected octants.
 // returns a packed list of octants positions in a single u32:
 // the 4 lsb bits are the packed first octant hit, the next 4 bits the 2nd, etc.
-fn next_solid_octants(node_coord: vec3u, depth: u32, ray_pos: vec3f, inv_dir: vec3f, mirror: vec3u) -> u32 {
+fn next_solid_octants(node_coord: vec3u, depth: u32, ray: Ray) -> u32 {
     let voxels_per_octant = 1u << #OCTREE_DEPTH - depth;
-    let node_start_t = (vec3f((node_coord * 2u + 0u) * voxels_per_octant) - ray_pos) * inv_dir;
-    let node_mid_t   = (vec3f((node_coord * 2u + 1u) * voxels_per_octant) - ray_pos) * inv_dir;
+    let node_start_t = (vec3f((node_coord * 2u + 0u) * voxels_per_octant) - ray.pos) * ray.inv_dir;
+    let node_mid_t   = (vec3f((node_coord * 2u + 1u) * voxels_per_octant) - ray.pos) * ray.inv_dir;
     var octant = vec3u(node_mid_t < vec3f(0.0) | vec3f(vmax(node_start_t)) > node_mid_t);
 
-    var incr_t = node_mid_t + vec3f(octant) * inv_dir * f32(voxels_per_octant);
+    var incr_t = node_mid_t + vec3f(octant) * ray.inv_dir * f32(voxels_per_octant);
 
     var next_octants = 0u;
     var next_ptr = 0u;
 
-    let mirror_node_coord = mirror_coord(node_coord, depth, mirror);
+    let mirror_node_coord = mirror_coord(node_coord, depth, ray.mirror);
     let node = get_node(mirror_node_coord, depth);
 
-    if is_octant_solid(node, octant ^ mirror) {
+    if is_octant_solid(node, octant ^ ray.mirror) {
         next_octants = pack_octant(octant);
         next_ptr++;
     }
 
     for (var i = 0u; i < 3u; i++) {
         let incr_mask = vec3u(cmpmin(incr_t)); // find which axis boundary is the closest
-        incr_t += vec3f(incr_mask) * inv_dir * f32(voxels_per_octant);
+        incr_t += vec3f(incr_mask) * ray.inv_dir * f32(voxels_per_octant);
         if dot(octant, incr_mask) != 0u {
             // exited the node
             break;
         }
         octant += incr_mask;
-        if is_octant_solid(node, octant ^ mirror) {
+        if is_octant_solid(node, octant ^ ray.mirror) {
             next_octants = (pack_octant(octant) << (next_ptr * 4u)) | next_octants;
             next_ptr++;
         }
@@ -133,25 +177,17 @@ fn next_solid_octants(node_coord: vec3u, depth: u32, ray_pos: vec3f, inv_dir: ve
     return next_octants;
 }
 
-fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f) -> CastResult {
+fn raycast_octree_impl(ray: Ray, res: ptr<function, CastRes>) {
     var depth = 0u;
     var octants_stack = array<u32, (#OCTREE_DEPTH - #GRID_DEPTH)>();
-
-    // handle symmetries: ray is mirrored to go in the positive direction.
-    // use mirror_coord() to find un-mirrored positions.
-    // real position is needed when sampling the octree: in get_node() and is_octant_solid().
-    let ray_dir = abs(ray_dir_);
-    let mirror = vec3u(ray_dir_ < vec3f(0.0));
-    let ray_pos = ray_pos_ * vec3f(1u - mirror) + (f32(2u << #OCTREE_DEPTH) - ray_pos_) * vec3f(mirror);
-    let inv_dir = 1.0 / ray_dir; // time to traverse 1 voxel in each x,y,z
-
     var node_coord = vec3u(0u);
-    var next_octants = next_solid_octants(node_coord, depth, ray_pos, inv_dir, mirror);
+    var next_octants = next_solid_octants(node_coord, depth, ray);
 
     for (var i = 0u; i < #OCTREE_MAX_ITER; i++) {
         if next_octants == 0u { // exited node, pop this octree level
             if depth == 0u { // completely out
-                return no_hit(i);
+                no_res(i, res);
+                return;
             }
             else { // "pop" the recursion stack
                 depth -= 1u;
@@ -166,78 +202,96 @@ fn raycast_octree_impl(ray_pos_: vec3f, ray_dir_: vec3f) -> CastResult {
             if depth == #OCTREE_DEPTH - #GRID_DEPTH { // found a leaf
                 let octant_coord = node_coord * 2u + unpack_octant(octant_index);
                 let voxels_per_octant = vec3u(1u << #GRID_DEPTH);
-                let octant_start_t = (vec3f((octant_coord + 0u) * voxels_per_octant) - ray_pos) * inv_dir;
-                let octant_end_t   = (vec3f((octant_coord + 1u) * voxels_per_octant) - ray_pos) * inv_dir;
-                let t = max(vmax(octant_start_t), 0.0);
+                let octant_start_t = (vec3f((octant_coord + 0u) * voxels_per_octant) - ray.pos) * ray.inv_dir;
+                let octant_end_t   = (vec3f((octant_coord + 1u) * voxels_per_octant) - ray.pos) * ray.inv_dir;
+                // let t = max(vmax(octant_start_t), 0.0);
+                (*res).iter = i;
+                (*res).bounds.t_min = max(vmax(octant_start_t), 0.0);
+                (*res).bounds.t_max = vmin(octant_end_t);
+                (*res).normal = -vec3f(cmpmax(octant_start_t));
+                (*res).voxel = octant_coord;
 
-                if #GRID_DEPTH == 0u {
-                    let pos = ray_pos_ + ray_dir_ * t;
-                    let normal = vec3f(cmpmax(octant_start_t)) * -sign(ray_dir_);
-                    let voxel = mirror_coord(octant_coord, depth + 1u, mirror);
-                    return CastResult(pos, normal, voxel, i, t, true);
+                if #GRID_DEPTH != 0u {
+                    raycast_grid_impl(ray, res);
+
+                    if is_res(*res) {
+                        return;
+                    }
                 }
-
-                let res = raycast_grid_impl(ray_pos, ray_dir, t, octant_end_t, mirror);
-
-                if res.hit {
-                    let t = res.t;
-                    let pos = ray_pos_ + ray_dir_ * t;
-                    let normal = res.normal * -sign(ray_dir_);
-                    return CastResult(pos, normal, res.voxel, i + res.iter, t, true);
+                else {
+                    return;
                 }
             }
             else { // recurse, push current node to stack
                 octants_stack[depth] = next_octants;
                 depth += 1u;
                 node_coord = node_coord * 2u + unpack_octant(octant_index);
-                next_octants = next_solid_octants(node_coord, depth, ray_pos, inv_dir, mirror);
+                next_octants = next_solid_octants(node_coord, depth, ray);
             }
         }
     }
 
     // end of iteration
-    return no_hit(#OCTREE_MAX_ITER);
+    no_res(#OCTREE_MAX_ITER, res);
 }
 
-fn raycast_grid_impl(ray_pos: vec3f, ray_dir: vec3f, t: f32, max_t: vec3f, mirror: vec3u) -> CastResult {
-    let inv_dir = 1.0 / ray_dir; // time to traverse 1 voxel in each x,y,z
-
-    let pos = ray_pos + t * ray_dir;
+fn raycast_grid_impl(ray: Ray, res: ptr<function, CastRes>) {
+    let pos = ray.pos + (*res).bounds.t_min * ray.dir;
     var voxel_coord = vec3u(pos); // this may move the ray back 1 voxel, but whatever
-    var voxel_t = (vec3f(voxel_coord) - ray_pos) * inv_dir;
+    var voxel_t = (vec3f(voxel_coord) - ray.pos) * ray.inv_dir;
 
-    for (var i = 0u; i < #GRID_MAX_ITER && all(voxel_t < max_t); i++) {
-        let mirror_voxel_coord = mirror_coord(voxel_coord, #OCTREE_DEPTH + 1u, mirror);
-        if is_voxel_solid(mirror_voxel_coord) {
-            let pos = vec3f(0.0); // ray_pos + ray_dir * t;
-            let normal = vec3f(cmpmax(voxel_t));
-            let t = vmax(voxel_t);
-            return CastResult(pos, normal, mirror_voxel_coord, i, t, true);
+    for (var i = 0u; i < #GRID_MAX_ITER && vmax(voxel_t) < (*res).bounds.t_max; i++) {
+        let mirror_voxel = mirror_coord(voxel_coord, #OCTREE_DEPTH + 1u, ray.mirror);
+        if is_voxel_solid(mirror_voxel) {
+            (*res).iter += i;
+            (*res).bounds.t_min = vmax(voxel_t);
+            (*res).normal = -vec3f(cmpmax(voxel_t));
+            (*res).voxel = voxel_coord;
+            return;
         }
         else {
-            let incr_mask = cmpmin(voxel_t + inv_dir); // find which axis boundary is the closest
-            voxel_t += vec3f(incr_mask) * inv_dir;
+            let incr_mask = cmpmin(voxel_t + ray.inv_dir); // find which axis boundary is the closest
+            voxel_t += vec3f(incr_mask) * ray.inv_dir;
             voxel_coord += vec3u(incr_mask);
         }
     }
 
     // end of iteration
-    return no_hit(#GRID_MAX_ITER);
+    (*res).bounds.t_min = -1.0;
+    (*res).iter += #GRID_MAX_ITER;
+    return;
 }
 
 // exported function
-fn raycast(ray_pos: vec3f, ray_dir: vec3f) -> CastResult {
+fn raycast(ray_pos: vec3f, ray_dir: vec3f) -> Hit {
     let scene_width = f32(2u << #OCTREE_DEPTH);
-    let tr_pos = ray_pos / scene_width;
-    var t = intersection(tr_pos, ray_dir);
+    let bounds = intersection(ray_pos, ray_dir, scene_width);
 
-    // no hit
-    if t.t_min > t.t_max || t.t_max < 0.0 {
+    // no hit;
+    if bounds.t_min > bounds.t_max || bounds.t_max < 0.0 {
         return no_hit(0u);
     }
 
-    else {
-        let res = raycast_octree_impl(ray_pos, ray_dir);
-        return res;
-    }
+    var ray: Ray;
+
+    // handle symmetries: ray is mirrored to go in the positive direction.
+    // use mirror_coord() to find un-mirrored positions.
+    // real position is needed when sampling the octree: in get_node() and is_octant_solid().
+    ray.mirror = vec3u(ray_dir < vec3f(0.0));
+    ray.pos = ray_pos * vec3f(1u - ray.mirror) + (f32(2u << #OCTREE_DEPTH) - ray_pos) * vec3f(ray.mirror);
+    ray.dir = abs(ray_dir);
+    ray.inv_dir = 1.0 / ray.dir;
+    ray.bounds = bounds;
+
+    var res: CastRes;
+
+    raycast_octree_impl(ray, &res);
+
+    var hit: Hit;
+    hit.iter = res.iter;
+    hit.t = res.bounds.t_min;
+    hit.pos = ray_pos + res.bounds.t_min * ray_dir;
+    hit.voxel = mirror_coord(res.voxel, #OCTREE_DEPTH + 1u, ray.mirror);
+    hit.normal = res.normal * sign(ray_dir);
+    return hit;
 }
