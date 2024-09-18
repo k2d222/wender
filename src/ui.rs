@@ -72,35 +72,20 @@ pub fn run_egui(state: &mut State, egui_state: &mut egui_winit::State) -> egui::
         });
 
         egui::Window::new("Controls").show(&ctx, |ui| {
-            ui.add(
-                egui::Slider::new(&mut state.constants.octree_depth, 0..=10).text("octree depth"),
-            );
-            ui.add(
-                egui::Slider::new(&mut state.constants.octree_max_iter, 0..=1000)
-                    .text("octree max iter"),
-            );
-            ui.add(egui::Slider::new(&mut state.constants.grid_depth, 0..=10).text("grid depth"));
-            ui.add(
-                egui::Slider::new(&mut state.constants.grid_max_iter, 0..=1000)
-                    .text("grid max iter"),
-            );
-            ui.add(
-                egui::Slider::new(&mut state.constants.shadow_max_iter, 0..=1000)
-                    .text("shadow max iter"),
-            );
-            ui.add(
-                egui::Slider::new(&mut state.constants.shadow_cone_angle, 0..=180)
-                    .text("shadow cone angle"),
-            );
-            ui.add(
-                egui::Slider::new(&mut state.constants.shadow_strength, 0..=20)
-                    .text("shadow strength"),
-            );
-            ui.add(egui::Slider::new(&mut state.constants.ao_strength, 0..=20).text("ao strength"));
-            ui.add(
-                egui::Slider::new(&mut state.constants.debug_display, 0..=3).text("debug display"),
-            );
-            ui.add(egui::Slider::new(&mut state.constants.msaa_level, 0..=4).text("MSAA level"));
+            let c = &mut state.constants;
+            ui.add(egui::Slider::new(&mut c.octree_depth, 0..=10).text("octree depth"));
+            ui.add(egui::Slider::new(&mut c.svo_depth, 0..=10).text("svo depth"));
+            ui.add(egui::Slider::new(&mut c.svo_max_iter, 0..=500).text("svo max iter"));
+            ui.add(egui::Slider::new(&mut c.dvo_depth, 0..=10).text("dvo depth"));
+            ui.add(egui::Slider::new(&mut c.dvo_max_iter, 0..=500).text("dvo max iter"));
+            ui.add(egui::Slider::new(&mut c.grid_depth, 0..=10).text("grid depth"));
+            ui.add(egui::Slider::new(&mut c.grid_max_iter, 0..=500).text("grid max iter"));
+            ui.add(egui::Slider::new(&mut c.shadow_max_iter, 0..=1000).text("shadow max iter"));
+            ui.add(egui::Slider::new(&mut c.shadow_cone_angle, 0..=180).text("shadow cone angle"));
+            ui.add(egui::Slider::new(&mut c.shadow_strength, 0..=20).text("shadow strength"));
+            ui.add(egui::Slider::new(&mut c.ao_strength, 0..=20).text("ao strength"));
+            ui.add(egui::Slider::new(&mut c.debug_display, 0..=3).text("debug display"));
+            ui.add(egui::Slider::new(&mut c.msaa_level, 0..=4).text("MSAA level"));
             ui.add(egui::Slider::new(&mut state.lights.angle, 0.0..=360.0).text("angle"));
             ui.add(egui::Slider::new(&mut state.lights.azimuth, 0.0..=90.0).text("azimuth"));
             ui.add(egui::Slider::new(&mut state.lights.speed, 0.0..=10.0).text("speed"));

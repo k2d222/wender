@@ -1,9 +1,0 @@
-[package]
-name = "wesl"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-clap = { version = "4.5.11", features = ["derive"] }
-tree-sitter = "0.22.6"
-tree-sitter-wesl = { path = "../tree-sitter-wesl" }

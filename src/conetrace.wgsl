@@ -1,5 +1,6 @@
-#import "bindings.wgsl"::{ colors, linear_sampler, nearest_sampler }
-#import "octree.wgsl"::{ intersection }
+import bindings/{ colors, linear_sampler, nearest_sampler };
+import raycast/util/{ intersection };
+import constants/{ SHADOW_MAX_ITER, SHADOW_CONE_ANGLE, OCTREE_DEPTH };
 
 fn conetrace(ray_pos: vec3f, ray_dir: vec3f, tan_angle: f32, start_dist: f32, max_dist: f32) -> vec4f {
     var res = vec4f(0.0);
@@ -8,7 +9,7 @@ fn conetrace(ray_pos: vec3f, ray_dir: vec3f, tan_angle: f32, start_dist: f32, ma
     var dist = start_dist;
     let size = vec3f(textureDimensions(colors, 0u));
 
-    for (var i = 0u; i < #SHADOW_MAX_ITER && dist <= max_dist; i++) {
+    for (var i = 0u; i < SHADOW_MAX_ITER && dist <= max_dist; i++) {
         let pos = ray_pos + ray_dir * dist;
         let radius = tan_angle * dist;
         let sample = textureSampleLevel(colors, linear_sampler, pos / size, log2(radius));
@@ -31,10 +32,10 @@ fn cone_spread(cone_angle: f32) -> f32 {
 }
 
 fn trace_shadow(ray_pos: vec3f, ray_dir: vec3f, start_dist: f32) -> f32 {
-    let scene_width = f32(2u << #OCTREE_DEPTH);
+    let scene_width = f32(2u << OCTREE_DEPTH);
     let bounds = intersection(ray_pos, ray_dir, scene_width);
 
-    let shadow_spread = cone_spread(f32(#SHADOW_CONE_ANGLE));
+    let shadow_spread = cone_spread(f32(SHADOW_CONE_ANGLE));
     let sample = conetrace(ray_pos, ray_dir, shadow_spread, start_dist, bounds.t_max);
     return sample.a;
 }

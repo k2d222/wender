@@ -1,11 +1,12 @@
-#import "octree.wgsl"::{ raycast, is_hit }
-
-#import "conetrace.wgsl"::{ trace_ao, trace_shadow }
-#import "bindings.wgsl"::{ colors, dvo }
+import raycast/raycast/{ raycast };
+import raycast/util/{ is_hit };
+import conetrace/{ trace_ao, trace_shadow };
+import bindings/{ colors, dvo };
+import constants/{ AO_STRENGTH, SHADOW_STRENGTH, DEBUG_DISPLAY, SVO_MAX_ITER, DVO_MAX_ITER, GRID_MAX_ITER, MSAA_LEVEL };
 
 // this module "requires":
 // const OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume: depth = log2(n) - 1.
-// const OCTREE_MAX_ITER: u32; // max number of hit tests in the octree per ray.
+// const DVO_MAX_ITER: u32; // max number of hit tests in the octree per ray.
 // const GRID_DEPTH: u32;
 // const GRID_MAX_ITER: u32;
 // const MSAA_LEVEL: u32; // msaa with 2^n probes, 0 to disable
@@ -70,13 +71,13 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
     var diffuse_term = max(dot(hit_normal, light_dir), 0.0) * diffuse_color;
     var specular_term = pow(max(dot(hit_normal, half_vector), 0.0), shininess) * specular_color;
 
-    if (#AO_STRENGTH != 0u) {
+    if (AO_STRENGTH != 0u) {
         let ao = trace_ao(hit_pos, hit_normal);
-        let strength = f32(#AO_STRENGTH) / 10.0;
+        let strength = f32(AO_STRENGTH) / 10.0;
         ambient_term *= (1.0 - ao * strength);
     }
 
-    if (#SHADOW_STRENGTH != 0u) {
+    if (SHADOW_STRENGTH != 0u) {
         let soft_dist = 5.0;
         let soft_falloff = 0.2;
         let hit = raycast(hit_pos + light_dir * 0.001, light_dir);
@@ -85,7 +86,7 @@ fn shade(albedo: vec4f, view_pos: vec3f, hit_pos: vec3f, hit_normal: vec3f) -> v
         let hard_decay = 1.0 - clamp((hit.t - soft_dist) * soft_falloff, 0.0, 1.0);
         let t = hard_shadow * hard_decay;
         let shadow = mix(soft_shadow, hard_shadow, t);
-        let strength = f32(#SHADOW_STRENGTH) / 10.0;
+        let strength = f32(SHADOW_STRENGTH) / 10.0;
 
         diffuse_term *= (1.0 - shadow * strength);
         specular_term *= (1.0 - shadow * strength);
@@ -130,9 +131,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let hit = raycast(cam.pos, ray_dir);
 
     // display ray complexity
-    if #DEBUG_DISPLAY == 1u {
-        let complexity = f32(hit.iter) / f32(#OCTREE_MAX_ITER);
-        if hit.iter == #OCTREE_MAX_ITER {
+    if DEBUG_DISPLAY == 1u {
+        let max_iter = SVO_MAX_ITER + DVO_MAX_ITER + GRID_MAX_ITER;
+        let complexity = f32(hit.iter) / f32(max_iter);
+        if hit.iter == max_iter {
             return vec4f(0.0, 0.0, 1.0, 1.0);
         }
         else if is_hit(hit) {
@@ -144,7 +146,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     }
 
     // display depth buffer
-    else if #DEBUG_DISPLAY == 2u {
+    else if DEBUG_DISPLAY == 2u {
         let max_t = f32(1u << textureNumLevels(dvo));
         var depth = 1.0 - saturate(hit.t / max_t);
         depth = pow(depth, 2.0); // just to give more contrast to higher values
@@ -152,7 +154,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     }
 
     // display normals
-    else if #DEBUG_DISPLAY == 3u {
+    else if DEBUG_DISPLAY == 3u {
         return vec4f(abs(hit.normal) - 0.8 * -sign(hit.normal), 1.0);
     }
 
@@ -162,9 +164,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         // return col;
 
         // MSAA
-        for (var i = 0u; i < #MSAA_LEVEL * 2u; i++) {
-            for (var j = 0u; j < #MSAA_LEVEL * 2u; j++) {
-                let pos = (2.0 * (vec2f(f32(i), f32(j)) - f32(#MSAA_LEVEL)) - 1.0) / (4.0 * f32(#MSAA_LEVEL * #MSAA_LEVEL) - 1.0);
+        for (var i = 0u; i < MSAA_LEVEL * 2u; i++) {
+            for (var j = 0u; j < MSAA_LEVEL * 2u; j++) {
+                let pos = (2.0 * (vec2f(f32(i), f32(j)) - f32(MSAA_LEVEL)) - 1.0) / (4.0 * f32(MSAA_LEVEL * MSAA_LEVEL) - 1.0);
                 let jitter = pos / cam.size;
                 let ray_dir = cam_ray_dir(in.pos + jitter);
                 let hit = raycast(cam.pos, ray_dir);
@@ -173,7 +175,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             }
         }
 
-        return col / (1.0 + f32(#MSAA_LEVEL * #MSAA_LEVEL * 4u));
+        return col / (1.0 + f32(MSAA_LEVEL * MSAA_LEVEL * 4u));
     }
 
     // else {

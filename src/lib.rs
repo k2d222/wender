@@ -136,10 +136,17 @@ impl State {
         let egui_ctx = egui::Context::default();
         let fps = FpsCounter::new();
 
+        let octree_depth = voxels.dim().ilog2() - 1;
+        let svo_depth = 0;
         let grid_depth = 2;
+        let dvo_depth = octree_depth - svo_depth - grid_depth;
+
         let constants = ShaderConstants {
-            octree_depth: voxels.dim().ilog2() - 1,
-            octree_max_iter: 200,
+            octree_depth,
+            svo_depth,
+            svo_max_iter: 200,
+            dvo_depth,
+            dvo_max_iter: 200,
             grid_depth,
             grid_max_iter: 2u32.pow(grid_depth) * 4,
             shadow_max_iter: 100,

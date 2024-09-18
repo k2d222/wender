@@ -5,18 +5,27 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
+use weslc::syntax::{self, DeclarationKind, TypeExpression};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
 
-use crate::preproc::{self, preprocess_shader};
+use crate::preproc::{self};
 use crate::voxels::VoxelsFormat;
 
-const OCTREE_FORMAT: TextureFormat = if cfg!(byte_voxels) {
+const DVO_FORMAT: TextureFormat = if cfg!(byte_voxels) {
     TextureFormat::R8Uint
 } else {
     TextureFormat::R32Uint
 };
-// const OCTREE_FORMAT = TextureFormat::R8Uint;
+// const DVO_FORMAT = TextureFormat::R8Uint;
+
+fn dvo_format_to_string() -> String {
+    match DVO_FORMAT {
+        TextureFormat::R8Uint => "r8uint".to_string(),
+        TextureFormat::R32Uint => "r32uint".to_string(),
+        _ => unreachable!(),
+    }
+}
 
 pub(crate) struct WgpuState {
     pub camera_buffer: Buffer,
@@ -36,7 +45,10 @@ pub(crate) struct WgpuState {
 
 pub(crate) struct ShaderConstants {
     pub octree_depth: u32,
-    pub octree_max_iter: u32,
+    pub svo_depth: u32,
+    pub svo_max_iter: u32,
+    pub dvo_depth: u32,
+    pub dvo_max_iter: u32,
     pub grid_depth: u32,
     pub grid_max_iter: u32,
     pub shadow_max_iter: u32,
@@ -55,26 +67,105 @@ pub(crate) struct Buffers<'a> {
 }
 
 impl ShaderConstants {
-    pub fn to_hashmap(&self) -> HashMap<String, f64> {
-        HashMap::from([
-            ("OCTREE_DEPTH".to_owned(), self.octree_depth as f64),
-            ("OCTREE_MAX_ITER".to_owned(), self.octree_max_iter as f64),
-            ("GRID_DEPTH".to_owned(), self.grid_depth as f64),
-            ("GRID_MAX_ITER".to_owned(), self.grid_max_iter as f64),
-            ("SHADOW_MAX_ITER".to_owned(), self.shadow_max_iter as f64),
-            (
-                "SHADOW_CONE_ANGLE".to_owned(),
-                self.shadow_cone_angle as f64,
-            ),
-            ("SHADOW_STRENGTH".to_owned(), self.shadow_strength as f64),
-            ("AO_STRENGTH".to_owned(), self.ao_strength as f64),
-            ("MSAA_LEVEL".to_owned(), self.msaa_level as f64),
-            ("DEBUG_DISPLAY".to_owned(), self.debug_display as f64),
-            (
-                "OCTREE_FORMAT".to_owned(),
-                (OCTREE_FORMAT.target_pixel_byte_cost().unwrap() * 8) as f64,
-            ),
-        ])
+    pub fn to_wesl(&self) -> syntax::TranslationUnit {
+        fn decl(name: &str, expr: Expression) -> GlobalDeclaration {
+            GlobalDeclaration::Declaration(Declaration {
+                attributes: Vec::new(),
+                kind: DeclarationKind::Const,
+                name: name.to_string(),
+                ty: None,
+                initializer: Some(expr),
+                template_args: None,
+            })
+        }
+        use syntax::*;
+        TranslationUnit {
+            global_declarations: vec![
+                decl(
+                    "OCTREE_DEPTH",
+                    Expression::Literal(LiteralExpression::U32(self.octree_depth)),
+                ),
+                decl(
+                    "SVO_DEPTH",
+                    Expression::Literal(LiteralExpression::U32(self.svo_depth)),
+                ),
+                decl(
+                    "SVO_MAX_ITER",
+                    Expression::Literal(LiteralExpression::U32(self.svo_max_iter)),
+                ),
+                decl(
+                    "DVO_DEPTH",
+                    Expression::Literal(LiteralExpression::U32(self.dvo_depth)),
+                ),
+                decl(
+                    "DVO_MAX_ITER",
+                    Expression::Literal(LiteralExpression::U32(self.dvo_max_iter)),
+                ),
+                decl(
+                    "GRID_DEPTH",
+                    Expression::Literal(LiteralExpression::U32(self.grid_depth)),
+                ),
+                decl(
+                    "GRID_MAX_ITER",
+                    Expression::Literal(LiteralExpression::U32(self.grid_max_iter)),
+                ),
+                decl(
+                    "SHADOW_MAX_ITER",
+                    Expression::Literal(LiteralExpression::U32(self.shadow_max_iter)),
+                ),
+                decl(
+                    "SHADOW_CONE_ANGLE",
+                    Expression::Literal(LiteralExpression::U32(self.shadow_cone_angle)),
+                ),
+                decl(
+                    "SHADOW_STRENGTH",
+                    Expression::Literal(LiteralExpression::U32(self.shadow_strength)),
+                ),
+                decl(
+                    "AO_STRENGTH",
+                    Expression::Literal(LiteralExpression::U32(self.ao_strength)),
+                ),
+                decl(
+                    "MSAA_LEVEL",
+                    Expression::Literal(LiteralExpression::U32(self.msaa_level)),
+                ),
+                decl(
+                    "DEBUG_DISPLAY",
+                    Expression::Literal(LiteralExpression::U32(self.debug_display)),
+                ),
+                GlobalDeclaration::TypeAlias(TypeAlias {
+                    attributes: Vec::new(),
+                    name: "texture_storage_read".to_string(),
+                    ty: TypeExpression {
+                        name: "texture_storage_3d".to_string(),
+                        template_args: Some(vec![
+                            Expression::Identifier(IdentifierExpression {
+                                name: dvo_format_to_string(),
+                            }),
+                            Expression::Identifier(IdentifierExpression {
+                                name: "read".to_string(),
+                            }),
+                        ]),
+                    },
+                }),
+                GlobalDeclaration::TypeAlias(TypeAlias {
+                    attributes: Vec::new(),
+                    name: "texture_storage_write".to_string(),
+                    ty: TypeExpression {
+                        name: "texture_storage_3d".to_string(),
+                        template_args: Some(vec![
+                            Expression::Identifier(IdentifierExpression {
+                                name: dvo_format_to_string(),
+                            }),
+                            Expression::Identifier(IdentifierExpression {
+                                name: "write".to_string(),
+                            }),
+                        ]),
+                    },
+                }),
+            ],
+            ..Default::default()
+        }
     }
 }
 
@@ -87,13 +178,14 @@ impl WgpuState {
         constants: &ShaderConstants,
     ) -> Self {
         let dim = 2u32.pow(constants.octree_depth + 1);
-        let render_pipeline = create_shader_pipeline(device, surface_config, constants).unwrap();
+        let render_pipeline = create_shader_pipeline(device, surface_config, constants);
         let octree_pipeline = create_octree_pipeline(device, constants).unwrap();
         let mipmap_pipeline = create_mipmap_pipeline(device, constants).unwrap();
 
         let camera_buffer = create_camera_buffer(device, buffers.camera);
         let lights_buffer = create_lights_buffer(device, buffers.lights);
-        let octree_texture = create_octree_texture(device, dim);
+        let svo_buffer = create_svo_buffer(device, dim);
+        let dvo_texture = create_dvo_texture(device, dim);
         let colors_texture = create_colors_texture(device, queue, dim, buffers.colors);
         let vertex_buffer = create_vertex_buffer(device);
         let voxels_texture = create_voxels_texture(device, queue, dim, buffers.voxels);
@@ -107,13 +199,14 @@ impl WgpuState {
         let octree_bind_group = create_octree_bind_group(
             device,
             &render_pipeline.get_bind_group_layout(1),
-            &octree_texture,
+            &svo_buffer,
+            &dvo_texture,
             &colors_texture,
         );
         Self {
             camera_buffer,
             lights_buffer,
-            octree_texture,
+            octree_texture: dvo_texture,
             voxels_texture,
             colors_texture,
             vertex_buffer,
@@ -308,9 +401,7 @@ impl WgpuState {
         surface_config: &SurfaceConfiguration,
         constants: &ShaderConstants,
     ) {
-        if let Some(render_pipeline) = create_shader_pipeline(device, surface_config, constants) {
-            self.render_pipeline = render_pipeline;
-        }
+        self.render_pipeline = create_shader_pipeline(device, surface_config, constants);
         if let Some(octree_pipeline) = create_octree_pipeline(device, constants) {
             self.octree_pipeline = octree_pipeline;
         }
@@ -378,11 +469,23 @@ pub(crate) fn create_colors_texture(
     texture
 }
 
-pub(crate) fn create_octree_texture(device: &Device, dim: u32) -> Texture {
+pub(crate) fn create_svo_buffer(device: &Device, _dim: u32) -> Buffer {
+    let size_heuristic = 500 * 1024; // 500Mib
+    let svo_buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("svo buffer"),
+        usage: BufferUsages::STORAGE,
+        size: size_heuristic,
+        mapped_at_creation: false,
+    });
+
+    svo_buffer
+}
+
+pub(crate) fn create_dvo_texture(device: &Device, dim: u32) -> Texture {
     let depth = dim.ilog2();
 
-    let octree_texture = device.create_texture(&TextureDescriptor {
-        label: Some("octree texture"),
+    let dvo_texture = device.create_texture(&TextureDescriptor {
+        label: Some("dvo texture"),
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING,
         size: Extent3d {
             width: dim / 2,
@@ -392,11 +495,11 @@ pub(crate) fn create_octree_texture(device: &Device, dim: u32) -> Texture {
         mip_level_count: depth,
         sample_count: 1,
         dimension: TextureDimension::D3,
-        format: OCTREE_FORMAT,
+        format: DVO_FORMAT,
         view_formats: &[],
     });
 
-    octree_texture
+    dvo_texture
 }
 
 pub(crate) fn create_vertex_buffer(device: &Device) -> Buffer {
@@ -456,7 +559,7 @@ pub(crate) fn create_voxels_texture(
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D3,
-            format: OCTREE_FORMAT,
+            format: DVO_FORMAT,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         },
@@ -494,10 +597,11 @@ pub(crate) fn create_uniforms_bind_group(
 pub(crate) fn create_octree_bind_group(
     device: &Device,
     bind_group_layout: &BindGroupLayout,
-    octree_texture: &Texture,
+    svo_buffer: &Buffer,
+    dvo_texture: &Texture,
     colors_texture: &Texture,
 ) -> BindGroup {
-    let octree_view = octree_texture.create_view(&TextureViewDescriptor {
+    let octree_view = dvo_texture.create_view(&TextureViewDescriptor {
         label: Some("octree texture view"),
         ..Default::default()
     });
@@ -539,18 +643,22 @@ pub(crate) fn create_octree_bind_group(
         entries: &[
             BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::TextureView(&octree_view),
+                resource: svo_buffer.as_entire_binding(),
             },
             BindGroupEntry {
                 binding: 1,
-                resource: BindingResource::TextureView(&colors_view),
+                resource: BindingResource::TextureView(&octree_view),
             },
             BindGroupEntry {
                 binding: 2,
-                resource: BindingResource::Sampler(&linear_sampler),
+                resource: BindingResource::TextureView(&colors_view),
             },
             BindGroupEntry {
                 binding: 3,
+                resource: BindingResource::Sampler(&linear_sampler),
+            },
+            BindGroupEntry {
+                binding: 4,
                 resource: BindingResource::Sampler(&nearest_sampler),
             },
         ],
@@ -559,21 +667,25 @@ pub(crate) fn create_octree_bind_group(
     octree_bind_group
 }
 
+fn fallback_shader() -> naga::Module {
+    naga::front::wgsl::parse_str(include_str!("fallback.wgsl")).unwrap()
+}
+
 pub(crate) fn create_shader_pipeline(
     device: &Device,
     surface_config: &SurfaceConfiguration,
     constants: &ShaderConstants,
-) -> Option<RenderPipeline> {
-    let constants = constants.to_hashmap();
+) -> RenderPipeline {
+    let constants = constants.to_wesl();
     let preproc_ctx = preproc::Context {
         main: &PathBuf::from_str("src/shader.wgsl").unwrap(),
         constants: &constants,
     };
-    let shader_module = match preprocess_shader(&preproc_ctx) {
+    let shader_module = match preproc::compile_shader(&preproc_ctx) {
         Ok(module) => module,
         Err(err) => {
-            eprintln!("{}", err);
-            return None;
+            eprintln!("{err}");
+            fallback_shader()
         }
     };
 
@@ -581,16 +693,14 @@ pub(crate) fn create_shader_pipeline(
 
     let shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("shader"),
-        // source: ShaderSource::Naga(Cow::Owned(shader_module)),
         source: ShaderSource::Naga(Cow::Owned(shader_module)),
-        // source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("compiled_shader_opt.wgsl"))),
     });
 
     let err = device.pop_error_scope().block_on();
     match err {
         Some(err) => {
-            eprintln!("shader error: {}", err);
-            return None;
+            eprintln!("wgpu shader error: {err}");
+            panic!();
         }
         None => println!("compiled render shader"),
     }
@@ -599,8 +709,19 @@ pub(crate) fn create_shader_pipeline(
         label: Some("octree bind group layout"),
         entries: &[
             BindGroupLayoutEntry {
-                // octree
+                // svo
                 binding: 0,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                // dvo
+                binding: 1,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
                     sample_type: TextureSampleType::Uint,
@@ -611,7 +732,7 @@ pub(crate) fn create_shader_pipeline(
             },
             BindGroupLayoutEntry {
                 // colors
-                binding: 1,
+                binding: 2,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
                     sample_type: TextureSampleType::Float { filterable: true },
@@ -622,14 +743,14 @@ pub(crate) fn create_shader_pipeline(
             },
             BindGroupLayoutEntry {
                 // linear_sampler
-                binding: 2,
+                binding: 3,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
             BindGroupLayoutEntry {
                 // nearest_sampler
-                binding: 3,
+                binding: 4,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
@@ -713,20 +834,20 @@ pub(crate) fn create_shader_pipeline(
         // cache: None,
     });
 
-    Some(pipeline)
+    pipeline
 }
 
 fn create_octree_pipeline(device: &Device, constants: &ShaderConstants) -> Option<ComputePipeline> {
-    let constants = constants.to_hashmap();
+    let constants = constants.to_wesl();
     let preproc_ctx = preproc::Context {
         main: &PathBuf::from_str("src/compute_octree.wgsl").unwrap(),
         constants: &constants,
     };
 
-    let shader_module = match preprocess_shader(&preproc_ctx) {
+    let shader_module = match preproc::compile_shader(&preproc_ctx) {
         Ok(module) => module,
         Err(err) => {
-            eprintln!("preproc error: {}", err);
+            eprintln!("{err}");
             return None;
         }
     };
@@ -741,7 +862,7 @@ fn create_octree_pipeline(device: &Device, constants: &ShaderConstants) -> Optio
     let err = device.pop_error_scope().block_on();
     match err {
         Some(err) => {
-            eprintln!("shader error: {}", err);
+            eprintln!("wgpu shader error: {err}");
             return None;
         }
         None => println!("compiled compute shader"),
@@ -756,7 +877,7 @@ fn create_octree_pipeline(device: &Device, constants: &ShaderConstants) -> Optio
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::StorageTexture {
                     access: StorageTextureAccess::ReadOnly,
-                    format: OCTREE_FORMAT,
+                    format: DVO_FORMAT,
                     view_dimension: TextureViewDimension::D3,
                 },
                 count: None,
@@ -767,7 +888,7 @@ fn create_octree_pipeline(device: &Device, constants: &ShaderConstants) -> Optio
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::StorageTexture {
                     access: StorageTextureAccess::WriteOnly,
-                    format: OCTREE_FORMAT,
+                    format: DVO_FORMAT,
                     view_dimension: TextureViewDimension::D3,
                 },
                 count: None,
@@ -794,16 +915,16 @@ fn create_octree_pipeline(device: &Device, constants: &ShaderConstants) -> Optio
 }
 
 fn create_mipmap_pipeline(device: &Device, constants: &ShaderConstants) -> Option<ComputePipeline> {
-    let constants = constants.to_hashmap();
+    let constants = constants.to_wesl();
     let preproc_ctx = preproc::Context {
         main: &PathBuf::from_str("src/mipmap.wgsl").unwrap(),
         constants: &constants,
     };
 
-    let shader_module = match preprocess_shader(&preproc_ctx) {
+    let shader_module = match preproc::compile_shader(&preproc_ctx) {
         Ok(module) => module,
         Err(err) => {
-            eprintln!("preproc error: {}", err);
+            eprintln!("{err}");
             return None;
         }
     };
@@ -818,7 +939,7 @@ fn create_mipmap_pipeline(device: &Device, constants: &ShaderConstants) -> Optio
     let err = device.pop_error_scope().block_on();
     match err {
         Some(err) => {
-            eprintln!("shader error: {}", err);
+            eprintln!("wgpu shader error: {err}");
             return None;
         }
         None => println!("compiled compute shader"),
