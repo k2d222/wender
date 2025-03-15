@@ -1,8 +1,8 @@
-import raycast/raycast/{ raycast };
-import raycast/util/{ is_hit };
-import conetrace/{ trace_ao, trace_shadow };
-import bindings/{ colors, dvo };
-import constants/{ AO_STRENGTH, SHADOW_STRENGTH, DEBUG_DISPLAY, SVO_MAX_ITER, DVO_MAX_ITER, GRID_MAX_ITER, MSAA_LEVEL };
+import package::raycast::raycast::{ raycast };
+import package::raycast::util::{ is_hit };
+import package::conetrace::{ trace_ao, trace_shadow };
+import package::bindings::{ colors, dvo };
+import package::constants::{ AO_STRENGTH, SHADOW_STRENGTH, DEBUG_DISPLAY, SVO_MAX_ITER, DVO_MAX_ITER, GRID_MAX_ITER, MSAA_LEVEL };
 
 // this module "requires":
 // const OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume: depth = log2(n) - 1.

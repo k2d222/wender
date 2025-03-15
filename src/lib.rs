@@ -5,18 +5,13 @@ mod ui;
 mod voxels;
 mod wgpu_util;
 
-use std::{
-    iter,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{iter, sync::Arc, time::Instant};
 
 use ui::{run_egui, FpsCounter};
-use wgpu::util::DeviceExt;
 use winit::{
     dpi::LogicalSize,
     event::*,
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
+    event_loop::{ControlFlow, EventLoopBuilder},
     keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
     platform::x11::EventLoopBuilderExtX11,
     window::{Window, WindowBuilder},

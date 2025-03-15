@@ -1,4 +1,4 @@
-import constants/{ texture_storage_read, texture_storage_write };
+import package::constants::{ texture_storage_read, texture_storage_write };
 
 @group(0) @binding(0)
 var voxels: texture_storage_read;

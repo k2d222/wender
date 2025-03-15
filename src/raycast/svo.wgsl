@@ -1,8 +1,8 @@
-import util/{ vmin, vmax, cmpmin, cmpmax };
-import bindings/{ colors, dvo, svo };
-import constants/{ OCTREE_DEPTH, SVO_DEPTH, SVO_MAX_ITER, GRID_DEPTH };
-import ./util/{ Ray, Hit, Node, CastRes, is_octant_solid, mirror_coord, pack_octant, unpack_octant, is_hit, is_res, no_res };
-import ./raycast/{ svo_raycast_continue as continue_raycast };
+import package::util::{ vmin, vmax, cmpmin, cmpmax };
+import package::bindings::{ colors, dvo, svo };
+import package::constants::{ OCTREE_DEPTH, SVO_DEPTH, SVO_MAX_ITER, GRID_DEPTH };
+import package::raycast::util::{ Ray, Hit, Node, CastRes, is_octant_solid, mirror_coord, pack_octant, unpack_octant, is_hit, is_res, no_res };
+import package::raycast::{ svo_raycast_continue as continue_raycast };
 
 // svo: a list of U32.
 // the 8 LSB bits are the solid state of the corresponding octant index.

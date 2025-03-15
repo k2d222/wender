@@ -1,18 +1,15 @@
-use dot_vox::Size;
 use nalgebra_glm as glm;
 use pollster::FutureExt;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
-use weslc::syntax::{self, DeclarationKind, TypeExpression};
+use wesl::syntax::{self};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::*;
 
 use crate::preproc::{self};
-use crate::voxels::VoxelsFormat;
 
-const DVO_FORMAT: TextureFormat = if cfg!(byte_voxels) {
+const DVO_FORMAT: TextureFormat = if cfg!(feature = "byte_voxels") {
     TextureFormat::R8Uint
 } else {
     TextureFormat::R32Uint
@@ -72,10 +69,9 @@ impl ShaderConstants {
             GlobalDeclaration::Declaration(Declaration {
                 attributes: Vec::new(),
                 kind: DeclarationKind::Const,
-                name: name.to_string(),
+                ident: Ident::new(name.to_string()),
                 ty: None,
-                initializer: Some(expr),
-                template_args: None,
+                initializer: Some(expr.into()),
             })
         }
         use syntax::*;
@@ -135,31 +131,45 @@ impl ShaderConstants {
                 ),
                 GlobalDeclaration::TypeAlias(TypeAlias {
                     attributes: Vec::new(),
-                    name: "texture_storage_read".to_string(),
+                    ident: Ident::new("texture_storage_read".to_string()),
                     ty: TypeExpression {
-                        name: "texture_storage_3d".to_string(),
+                        path: None,
+                        ident: Ident::new("texture_storage_3d".to_string()),
                         template_args: Some(vec![
-                            Expression::Identifier(IdentifierExpression {
-                                name: dvo_format_to_string(),
-                            }),
-                            Expression::Identifier(IdentifierExpression {
-                                name: "read".to_string(),
-                            }),
+                            TemplateArg {
+                                expression: Expression::TypeOrIdentifier(TypeExpression::new(
+                                    Ident::new(dvo_format_to_string()),
+                                ))
+                                .into(),
+                            },
+                            TemplateArg {
+                                expression: Expression::TypeOrIdentifier(TypeExpression::new(
+                                    Ident::new("read".to_string()),
+                                ))
+                                .into(),
+                            },
                         ]),
                     },
                 }),
                 GlobalDeclaration::TypeAlias(TypeAlias {
                     attributes: Vec::new(),
-                    name: "texture_storage_write".to_string(),
+                    ident: Ident::new("texture_storage_write".to_string()),
                     ty: TypeExpression {
-                        name: "texture_storage_3d".to_string(),
+                        path: None,
+                        ident: Ident::new("texture_storage_3d".to_string()),
                         template_args: Some(vec![
-                            Expression::Identifier(IdentifierExpression {
-                                name: dvo_format_to_string(),
-                            }),
-                            Expression::Identifier(IdentifierExpression {
-                                name: "write".to_string(),
-                            }),
+                            TemplateArg {
+                                expression: Expression::TypeOrIdentifier(TypeExpression::new(
+                                    Ident::new(dvo_format_to_string()),
+                                ))
+                                .into(),
+                            },
+                            TemplateArg {
+                                expression: Expression::TypeOrIdentifier(TypeExpression::new(
+                                    Ident::new("write".to_string()),
+                                ))
+                                .into(),
+                            },
                         ]),
                     },
                 }),

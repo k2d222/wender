@@ -1,4 +1,4 @@
-import bindings/{ colors };
+import package::bindings::{ colors };
 
 struct Intersect {
     t_min: f32,

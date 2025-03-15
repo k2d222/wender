@@ -1,8 +1,8 @@
-import util/{ vmin, vmax, cmpmin, cmpmax };
-import bindings/{ colors, dvo, svo };
-import constants/{ OCTREE_DEPTH, DVO_DEPTH, GRID_DEPTH, DVO_MAX_ITER };
-import ./util/{ Ray, Hit, Node, CastRes, is_octant_solid, is_res, mirror_coord, pack_octant, unpack_octant, no_res };
-import ./raycast/{ dvo_raycast_continue as continue_raycast };
+import package::util::{ vmin, vmax, cmpmin, cmpmax };
+import package::bindings::{ colors, dvo, svo };
+import package::constants::{ OCTREE_DEPTH, DVO_DEPTH, GRID_DEPTH, DVO_MAX_ITER };
+import package::raycast::util::{ Ray, Hit, Node, CastRes, is_octant_solid, is_res, mirror_coord, pack_octant, unpack_octant, no_res };
+import package::raycast::raycast::{ dvo_raycast_continue as continue_raycast };
 
 // this module "requires":
 // OCTREE_DEPTH: u32; // depth = 0 for a 2^3 volume: depth = log2(n) - 1.

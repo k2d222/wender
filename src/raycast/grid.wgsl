@@ -1,7 +1,7 @@
-import constants/{ GRID_MAX_ITER, OCTREE_DEPTH };
-import bindings/{ colors, dvo, svo };
-import util/{ vmin, vmax, cmpmin, cmpmax };
-import ./util/{ Ray, Hit, Node, CastRes, mirror_coord, is_voxel_solid };
+import package::constants::{ GRID_MAX_ITER, OCTREE_DEPTH };
+import package::bindings::{ colors, dvo, svo };
+import package::util::{ vmin, vmax, cmpmin, cmpmax };
+import package::raycast::util::{ Ray, Hit, Node, CastRes, mirror_coord, is_voxel_solid };
 
 fn grid_raycast_impl(ray: Ray, res: ptr<function, CastRes>) {
     let pos = ray.pos + (*res).bounds.t_min * ray.dir;

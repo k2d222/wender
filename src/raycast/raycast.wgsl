@@ -1,10 +1,10 @@
-import util/{ vmin, vmax, cmpmin, cmpmax };
-import bindings/{ colors, dvo, svo };
-import constants/{ OCTREE_DEPTH };
-import ./util/{ intersection, Ray, Hit, no_hit, CastRes, mirror_coord };
-import ./dvo/{ dvo_raycast_impl };
-import ./svo/{ svo_raycast_impl };
-import ./grid/{ grid_raycast_impl };
+import package::util::{ vmin, vmax, cmpmin, cmpmax };
+import package::bindings::{ colors, dvo, svo };
+import package::constants::{ OCTREE_DEPTH };
+import package::raycast::util::{ intersection, Ray, Hit, no_hit, CastRes, mirror_coord };
+import package::raycast::dvo::{ dvo_raycast_impl };
+import package::raycast::svo::{ svo_raycast_impl };
+import package::raycast::grid::{ grid_raycast_impl };
 
 fn raycast_start(ray: Ray, res: ptr<function, CastRes>) {
     // svo_raycast_impl(ray, res);

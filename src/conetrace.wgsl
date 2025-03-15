@@ -1,6 +1,6 @@
-import bindings/{ colors, linear_sampler, nearest_sampler };
-import raycast/util/{ intersection };
-import constants/{ SHADOW_MAX_ITER, SHADOW_CONE_ANGLE, OCTREE_DEPTH };
+import package::bindings::{ colors, linear_sampler, nearest_sampler };
+import package::raycast::util::{ intersection };
+import package::constants::{ SHADOW_MAX_ITER, SHADOW_CONE_ANGLE, OCTREE_DEPTH };
 
 fn conetrace(ray_pos: vec3f, ray_dir: vec3f, tan_angle: f32, start_dist: f32, max_dist: f32) -> vec4f {
     var res = vec4f(0.0);

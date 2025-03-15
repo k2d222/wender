@@ -3,9 +3,9 @@ use std::{fs::File, io::BufReader};
 use nalgebra_glm as glm;
 use ndarray::{s, Array3, Zip};
 
-#[cfg(byte_voxels)]
+#[cfg(feature = "byte_voxels")]
 pub type VoxelsFormat = u8;
-#[cfg(not(byte_voxels))]
+#[cfg(not(feature = "byte_voxels"))]
 pub type VoxelsFormat = u32;
 
 #[derive(Debug)]
